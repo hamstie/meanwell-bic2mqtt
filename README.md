@@ -1,8 +1,15 @@
-# meanwell-can-control
-Tool to control Power Supplys from Mean Well via CAN Bus
+# meanwell-bic2mqtt (under construction)
+Tool to control Power Supplys from Mean Well via MQTT
+
+was forked from stcan/meanwell-can-control
+Changes:
+ - (todo) possible to use cbic2200.py as a module
+ - (todo) add mqtt-interface client
+
+This fork wasn't tested yet !!!
+
 
 Tested with the 24V Version BIC-2200-24-CAN and NPB-abc0 Series Charger
-
 Please note:  this tool is not yet complete and also not fully tested. Do not use without monitoring the devices. There is no error handling yet !!!
 
 What is missing:
