@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# schima : class implementation of bic2200.py
 # cbic2200.py
 # Controlling the Mean Well BIC-2200-CAN
 # tested only with the 24V Version BIC-2200-CAN-24
@@ -12,7 +11,7 @@
 # - variables plausibility check
 # - programming missing functions 
 # - current and voltage maximum settings
-
+VER = "0.2.71"
 # steve 08.06.2023  Version 0.2.1
 # steve 10.06.2023  Version 0.2.2
 # macGH 15.06.2023  Version 0.2.3
@@ -31,6 +30,10 @@
 # steve 06.02.2024 Version 0.2.7
 #       - rename first variable statusread to outputread
 #       - statusread now fully functional          
+# hamste 04.04.2024 Version 0.2.71 class implementation of bic2200.py
+#       - worked as module
+#       - add exception for can read timeouts
+#       - removed some boilercode 
 
 import os
 import can
@@ -106,7 +109,7 @@ def bic22_commands():
     print("")
     print("       <value> = amps oder volts * 100 --> 25,66V = 2566")
     print("")
-    print("       Version 0.2.5 ")
+    print("       Version {} ".format(VER))
 
 #########################################
 # gereral function
