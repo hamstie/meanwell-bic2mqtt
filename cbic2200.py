@@ -30,10 +30,11 @@ VER = "0.2.71"
 # steve 06.02.2024 Version 0.2.7
 #       - rename first variable statusread to outputread
 #       - statusread now fully functional          
-# hamstie 04.04.2024 Version 0.2.71 class implementation of bic2200.py
+# hamstie 05.04.2024 Version 0.2.71 class implementation of bic2200.py
 #       - worked as module
-#      s - add exception for can read timeouts
-#       - removed some boilercode 
+#       - add exception for can read timeouts
+#       - removed some boilercode
+#       - return list of fault-bits for sttus processing
 
 import os
 import can
@@ -138,6 +139,18 @@ class CBic:
     def __init__(self,can_adr):
         self.can0 = None
         self.can_adr = can_adr
+        self.dfault = {} # key is the name value is a tupel of active(1) and fault-count
+        self.dfault['fan'] =    {'active':0,'cnt':0} # fanspeed
+        self.dfault['otp'] =    {'active':0,'cnt':0} # over temperature protection
+        self.dfault['otpHi'] =  {'active':0,'cnt':0} # internal hi temperature protection  
+        self.dfault['ovp'] =    {'active':0,'cnt':0} # over voltage protection
+        self.dfault['ovpHi'] =  {'active':0,'cnt':0} # over voltage protection
+        self.dfault['olp'] =    {'active':0,'cnt':0} # over current protection
+        self.dfault['short'] =  {'active':0,'cnt':0} # short circuit protection
+        self.dfault['acRange'] ={'active':0,'cnt':0} # ac grid range
+        self.dfault['dcOff'] =  {'active':0,'cnt':0} # dc off
+        self.dfault['eeprom'] = {'active':0,'cnt':0} # eeprom fault
+        self.dfault['can'] =    {'active':0,'cnt':0} # can-com error e.g. read-tmo       
 
         try:
             self.can0 = can.interface.Bus(channel = 'can0', bustype = 'socketcan')
@@ -473,8 +486,8 @@ class CBic:
         v = self.can_receive()
         return v
 
-
-    def statusread(self):
+    # @return list of the affected bits
+    def statusread(self,silence = False):
         # print ("Read System Status")
         # Command Code 0x00C1
         # Read System Status
@@ -484,7 +497,13 @@ class CBic:
 
         self.can_send_msg([commandlowbyte,commandhighbyte])
         sval = self.can_receive()
-        
+        lbits=[]
+        for bit in range(0,6):
+            lbits.append(get_normalized_bit(int(sval),bit)) 
+
+        if silence is True:
+            return lbits
+
         # deconding 
         s = get_normalized_bit(int(sval), bit_index=0)
         if s == 0:
@@ -522,11 +541,22 @@ class CBic:
         else:
             print ("EEPROM data access error") 
         
-            
+        return lbits
+
+    # only usefull for the non-command line mode
+    def fault_update(self,name,new_state):
+        fault = self.dfault[name]
+        if fault.active != new_state:
+            if new_state >0:
+                fault.cnt +=1
+            fault.active = new_state
+            print('fault state changed {} = {} cnt:{}'.format(name,new_state,fault.cnt))
+
+    """ Read System Fault Status 
+        Command Code 0x0040
+        - set and count faults   
+    """
     def faultread(self):
-        # print ("Read System Fault Status")
-        # Command Code 0x0040
-        # Read System Fault Status
         
         commandhighbyte = 0x00
         commandlowbyte = 0x40
@@ -536,54 +566,65 @@ class CBic:
 
         # deconding
         s = get_normalized_bit(int(sval), bit_index=0)
+        self.fault_update('fan',s)
         if s == 0:
             print ("FAN_FAIL: Fan working normally")
         else:
             print ("FAN_FAIL: Fan locked")
 
+
         s = get_normalized_bit(int(sval), bit_index=1)
+        self.fault_update('otp',s)
         if s == 0:
             print ("OTP: Internal temperature normal")
         else:
             print ("OTP: Internal temperature abnormal")
 
+        
         s = get_normalized_bit(int(sval), bit_index=2)
+        self.fault_update('ovp',s)
         if s == 0:
             print ("OVP: DC voltage normal")
         else:
             print ("OVP: DC over voltage protected")
 
         s = get_normalized_bit(int(sval), bit_index=3)
+        self.fault_update('olp',s)
         if s == 0:
             print ("OLP: DC current normal")
         else:
             print ("OLP: DC over current protected")
 
         s = get_normalized_bit(int(sval), bit_index=4)
+        self.fault_update('short',s)
         if s == 0:
             print ("SHORT: Short circuit do not exist")
         else:
             print ("SHORT: Short circuit protected")
 
         s = get_normalized_bit(int(sval), bit_index=5)
+        self.fault_update('acRange',s)
         if s == 0:
             print ("AC_FAIL: AC range normal")
         else:
             print ("AC_FAIL: AC range abnormal")
 
         s = get_normalized_bit(int(sval), bit_index=6)
+        self.fault_update('dcOff',s)
         if s == 0:
             print ("OP_OFF: DC turned on")
         else:
             print ("OP_OFF: DC turned off")
 
         s = get_normalized_bit(int(sval), bit_index=7)
+        self.fault_update('otpHi',s)
         if s == 0:
             print ("HI_TEMP: Internal temperature normal")
         else:
             print ("HI_TEMP: Internal temperature abnormal")
     
         s = get_normalized_bit(int(sval), bit_index=8)
+        self.fault_update('ovpHi',s)
         if s == 0:
             print ("HV_OVP: HV voltage normal")
         else:

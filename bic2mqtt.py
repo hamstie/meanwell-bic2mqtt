@@ -167,7 +167,7 @@ class App:
 		[DEVICE]
 		@param dbkey-str [MODEM]Id/X/Type def:empty well known modem type "BIC2200"
 		@param dbkey-int [MODEM]Id/X/CanBaudRate def:0 Baudrate
-		@topic sub <main-app>/bic/<id>/set some bic charge/discharge values {"chargeC100","20"} or {"dischargeC100","20"}
+		@topic-sub <main-app>/bic/<id>/set some bic charge/discharge regulation values {"chargeC100","20"} or {"dischargeC100","20"}
 	"""
 	def cfg(self,ini):
 		# @future-use iterate over all bic's
