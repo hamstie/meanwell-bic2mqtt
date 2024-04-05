@@ -21,7 +21,7 @@ SafeDischargeCurrent = 2600
 
 config = configparser.ConfigParser()
 
-# First init Values from Config File
+# First init values from Config File
 config.read('./charge_control.conf')
 ChargeVoltage = int(config.get('Settings', 'ChargeVoltage'))
 DischargeVoltage = int(config.get('Settings', 'DischargeVoltage'))

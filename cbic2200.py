@@ -30,9 +30,9 @@ VER = "0.2.71"
 # steve 06.02.2024 Version 0.2.7
 #       - rename first variable statusread to outputread
 #       - statusread now fully functional          
-# hamste 04.04.2024 Version 0.2.71 class implementation of bic2200.py
+# hamstie 04.04.2024 Version 0.2.71 class implementation of bic2200.py
 #       - worked as module
-#       - add exception for can read timeouts
+#      s - add exception for can read timeouts
 #       - removed some boilercode 
 
 import os
