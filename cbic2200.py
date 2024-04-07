@@ -136,24 +136,26 @@ class CBic:
     e_state_off = 0
     e_state_on  = 1
 
-    def __init__(self,can_adr):
+    def __init__(self,can_dev='can0' ,can_adr=CAN_ADR):
         self.can0 = None
+        self.can_dev = can_dev
         self.can_adr = can_adr
-        self.dfault = {} # key is the name value is a tupel of active(1) and fault-count
-        self.dfault['fan'] =    {'active':0,'cnt':0} # fanspeed
-        self.dfault['otp'] =    {'active':0,'cnt':0} # over temperature protection
-        self.dfault['otpHi'] =  {'active':0,'cnt':0} # internal hi temperature protection  
-        self.dfault['ovp'] =    {'active':0,'cnt':0} # over voltage protection
-        self.dfault['ovpHi'] =  {'active':0,'cnt':0} # over voltage protection
-        self.dfault['olp'] =    {'active':0,'cnt':0} # over current protection
-        self.dfault['short'] =  {'active':0,'cnt':0} # short circuit protection
-        self.dfault['acRange'] ={'active':0,'cnt':0} # ac grid range
-        self.dfault['dcOff'] =  {'active':0,'cnt':0} # dc off
-        self.dfault['eeprom'] = {'active':0,'cnt':0} # eeprom fault
-        self.dfault['can'] =    {'active':0,'cnt':0} # can-com error e.g. read-tmo       
+        self.fault_update = True # fault was changed update fault if flag was set
+        self.d_fault = {} # key is the name value is a tupel of active(1) and fault-count
+        self.d_fault['fan'] =    {'active':0,'cnt':0,'desc':"fanspeed abnormal"}
+        self.d_fault['otp'] =    {'active':0,'cnt':0,'desc':"over temperature protection"}
+        self.d_fault['otpHi'] =  {'active':0,'cnt':0,'desc':"internal hi temperature protection"}
+        self.d_fault['ovp'] =    {'active':0,'cnt':0,'desc':"over voltage protection"}
+        self.d_fault['ovpHi'] =  {'active':0,'cnt':0,'desc':"over voltage protection"}
+        self.d_fault['olp'] =    {'active':0,'cnt':0,'desc':"over current protection"}
+        self.d_fault['short'] =  {'active':0,'cnt':0,'desc':"short circuit protection"}
+        self.d_fault['acRange'] ={'active':0,'cnt':0,'desc':"ac grid range"}
+        self.d_fault['dcOff'] =  {'active':0,'cnt':0,'desc':"dc off"}
+        self.d_fault['eeprom'] = {'active':0,'cnt':0,'desc':"eeprom fault"}
+        self.d_fault['can'] =    {'active':0,'cnt':0,'desc':"can-com error / read-tmo"}       
 
         try:
-            self.can0 = can.interface.Bus(channel = 'can0', bustype = 'socketcan')
+            self.can0 = can.interface.Bus(channel = self.can_dev, bustype = 'socketcan')
         except Exception as e:
             print(e)
             print("CAN INTERFACE NOT FOUND. TRY TO BRING UP CAN DEVICE FIRST WITH -> can_up")
@@ -161,13 +163,15 @@ class CBic:
 
     # init can device
     @staticmethod
-    def can_up(use_rs232 = False):
-        if use_rs232 is False:
-            os.system('sudo ip link set can0 up type can bitrate 250000')
-            os.system('sudo ifconfig can0 txqueuelen 65536')
-        else:
-            os.system('sudo slcand -f -s5 -c -o ' + CAN_DEVICE)
-            os.system('sudo ip link set up can0')
+    def can_up():
+        os.system('sudo ip link set {} up type can bitrate {}'.format('can0','250000'))
+        os.system('sudo ifconfig {} txqueuelen 65536'.format('can0'))
+       
+    # init serial can device
+    @staticmethod
+    def can_up_serial(dev_node = CAN_DEVICE):
+        os.system('sudo slcand -f -s5 -c -o ' + dev_node)
+        os.system('sudo ip link set up {}'.format('can0'))
     
     @staticmethod
     def can_down():
@@ -545,11 +549,12 @@ class CBic:
 
     # only usefull for the non-command line mode
     def fault_update(self,name,new_state):
-        fault = self.dfault[name]
+        fault = self.d_fault[name]
         if fault.active != new_state:
             if new_state >0:
                 fault.cnt +=1
             fault.active = new_state
+            self.fault_update = True
             print('fault state changed {} = {} cnt:{}'.format(name,new_state,fault.cnt))
 
     """ Read System Fault Status 
@@ -676,10 +681,10 @@ def command_line_argument(bic):
 if __name__ == "__main__":
     if USE_RS232_CAN == 1:
         if sys.argv[1] in ['can_up']: 
-            CBic.can_up(True)
+            CBic.can_up_serial()
             sys.exit(0)
     
-    bic = CBic(CAN_ADR)
+    bic = CBic()
     command_line_argument(bic)
 
     if USE_RS232_CAN == 1:

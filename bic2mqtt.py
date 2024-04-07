@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-APP_VER = "0.0"
+APP_VER = "0.01"
 APP_NAME = "bic2mqtt"
 
 """
  fst:05.04.2024 lst:05.04.2024
  Meanwell BIC2200-XXCAN to mqtt bridge
- V0.0  No fuction yet
+ V0.01  mqtt is running
+ V0.00  No fuction yet, working on the app-frame
 
 """
 
@@ -13,7 +14,7 @@ import logging
 #from logging.handlers import RotatingFileHandler
 
 from cmqtt import CMQTT
-#from cbic2200 import CBic @todo
+from cbic2200 import CBic
 
 from datetime import datetime
 import time
@@ -66,9 +67,48 @@ class CIni:
 			pass
 		return def_val
 
+	# @return a dic of key,values for the given section
+	def get_sec_keys(self,sec : str):
+		ret = {}
+		if self.cfg.has_section(sec):	
+			ret = dict(self.cfg.items(sec))
+		return ret
+
+class CBattery():
+	def __init__(self,id):
+		self.d_Cap2V100 = {} # key: capacity in %  [0..100], value: voltage*100 
+		self.d_Cap2V100[0]=0
+
+	def check(self):
+		k_old = 0
+		v_old = 0 
+		for k,v in self.d_Cap2V100.items():
+			if k_old > k or v_old > v:
+				raise RuntimeError('wrong/mismatch bat table entry' + str(self.d_Cap2V100))
+			#print('{}%={}'.format(k,v))
+		return 0
+
+	# bat profile from ini
+	# @param dbkey-int [BAT_0]Cap2V/X=V battery capacity [%] to volatage V*100
+	def cfg(self,ini):
+		d = ini.get_sec_keys('BAT_0')
+		for k,v in d.items():
+				if k.find('cap2v/')>=0:
+					cap_pc = int(k.replace('cap2v/',''))
+					self.d_Cap2V100[cap_pc] = int(v)
+		self.check()
+
+	# @return the capacity of the battery [%]
+	def get_capacity_pc(self,v100):
+		vret=0
+		for c, v in self.d_Cap2V100.items():
+			if v > v100:
+				return vret
+		return vret
+
 
 """
-BIC Device Object:
+BIC Inverter Device Object:
  - config parameter 
  - state of bic
  - charge control
@@ -76,13 +116,19 @@ BIC Device Object:
 class CBicDevBase():
 	def __init__(self,id : int,type : str):
 		self.id = id	# device-id from ini
-		self.type = "BIC22XX-XXBASE" # will be ovrwritten
+		if type is None or len(type)==0:
+			self.type = "BIC22XX-XXBASE"
+		else:
+			self.type = type
+		
+		self.bic = None
+		
 		self.info = {}
 		self.info['id'] = int(self.id)
 		self.info['type'] = self.type
 		self.info['fault'] = {'av':0,'eeprom':0,'fan':0,'temp':0,'dcV':0,'dcA':0,'shortC':0,'acGrid':0,'pfc':0}
 		self.info['tempC'] = -278
-	
+
 		self.state = {}
 		self.state['onlMode'] = "on" # [on,off]
 		self.state['acGridV'] = 0 # grid-volatge [V]
@@ -91,6 +137,8 @@ class CBicDevBase():
 		self.state['dcBatA'] = 0  # bat [A] discharge[-] charge[+] ?
 		self.state['changeMode'] = "discharge" # [charge,discharge,none]
 
+		self.fault = {} # dic of all fault-states
+
 		self.can_bit_rate = 0 # canbus baud-rate
 		self.can_adr = 0 # can address
 		self.can_dev = "" # can device node /dev/tty... for serial can interface
@@ -98,6 +146,36 @@ class CBicDevBase():
 		self.cfg_min_vdischarge100 = 6000
 		self.cfg_max_ccharge100 = 0
 		self.cfg_max_cdischarge100 = 0
+
+		self.tmo_info_ms = 0 #timeslice update info
+		self.cfg_tmo_info_ms = 4000 #timeslice update info
+		self.tmo_state_ms =  0 #timeslice update state
+		self.cfg_tmo_state_ms = 2000 #timeslice update state
+	
+
+	# read from bic
+	def	update_info(self):
+		self.info['id'] = int(self.id)
+		self.info['type'] = self.type
+		self.info['fault'] = {'av':0,'eeprom':0,'fan':0,'temp':0,'dcV':0,'dcA':0,'shortC':0,'acGrid':0,'pfc':0}
+		self.info['tempC'] = -278
+		jpl = json.dumps(self.info, sort_keys=False, indent=4)
+		global mqttc
+		mqttc.publish(MQTT_T_APP + '/inv/' + str(self.id) +  '/info',jpl,0,True) # retained
+
+
+	# read from bic
+	def update_state(self):
+		self.state['onlMode'] = "on" # [on,off]
+		self.state['acGridV'] = 0 # grid-volatge [V]
+		self.state['dcBatV'] = 0 # bat voltage DV [V]
+		self.state['batCapPc'] = 0 # bat capacity [%] 
+		self.state['dcBatA'] = 0  # bat [A] discharge[-] charge[+] ?
+		self.state['changeMode'] = "discharge" # [charge,discharge,none]
+		jpl = json.dumps(self.state, sort_keys=False, indent=4)
+		global mqttc
+		mqttc.publish(MQTT_T_APP + '/inv/' + str(self.id) +  '/state',jpl,0,True) # retained
+
 
 	""" ini file config parameter
 		@param dbkey-int [DEVICE]Id/X/ChargeVoltage def:2750 volt*100
@@ -109,19 +187,36 @@ class CBicDevBase():
 
 		def kpfx():
 			return "Id/{}/".format(self.id)
-
 		self.cfg_max_vcharge100 = ini.get_int('DEVICE',kpfx() + "ChargeVoltage",self.cfg_max_vcharge100)
 		self.cfg_min_vdischarge100 = ini.get_int('DEVICE',kpfx() + "DischargeVoltage",self.cfg_min_vdischarge100)
 		self.cfg_max_ccharge100 = ini.get_int('DEVICE',kpfx() + "MaxChargeCurrent",self.cfg_max_ccharge100)
 		self.cfg_max_cdischarge100 = ini.get_int('DEVICE',kpfx() + "MaxDischargeCurrent",self.cfg_max_cdischarge100)
 		lg.info("init " + str(self))
 		#dischargedelay = int(config.get('Settings', 'DischargeDelay'))
+		
 
 	def __str__(self):
 		return "dev id:{} cfg-cv:{} cfg-dv:{} cc:{} cfg-dc:{}".format(self.id,self.cfg_max_vcharge100,self.cfg_min_vdischarge100,self.cfg_max_ccharge100,self.cfg_max_cdischarge100)
 
 	def poll(self,timeslive_ms):
-		pass
+
+		if self.bic.fault_update is True:
+			self.bic.fault_update = False
+			jpl = json.dumps(self.bic.d_fault, sort_keys=False, indent=4)
+			global mqttc
+			mqttc.publish(MQTT_T_APP + '/inv/' + str(self.id) +  '/fault',jpl,0,True) # retained
+
+		if self.tmo_info_ms >=0:
+			self.tmo_info_ms -= timeslive_ms
+		else:
+			self.tmo_info_ms = self.cfg_tmo_info_ms
+			self.update_info()
+
+		if self.tmo_state_ms >=0:
+			self.tmo_state_ms -= timeslive_ms
+		else:
+			self.tmo_state_ms = self.cfg_tmo_state_ms
+			self.update_state()
 
 # device type 2200-24V CAN
 class CBicDev2200_24(CBicDevBase):
@@ -138,9 +233,16 @@ class CBicDev2200_24(CBicDevBase):
 
 
 	# special config
+	# @param dbkey-int [DEVICE]Id/X/CanBitrate def:250000
 	def cfg(self,ini):
+		def kpfx():
+			return "Id/{}/".format(self.id)
+
 		super().cfg(ini)
-		if self.id >0:
+		if self.id >=0:
+			self.can_bit_rate = ini.get_int('DEVICE',kpfx() + "CanBitrate",250000)
+			CBic.can_up()
+			self.bic = CBic('can0',0x000C0300)
 			return 0
 		else:
 			return -1
@@ -162,7 +264,8 @@ class App:
 		self.started = False
 		self.con_time_min=0
 		self.dev_bic = {} # all bic hardware devices
-		
+		self.bat = CBattery(0)
+	
 	""" BIC Config
 		[DEVICE]
 		@param dbkey-str [MODEM]Id/X/Type def:empty well known modem type "BIC2200"
@@ -173,6 +276,7 @@ class App:
 		# @future-use iterate over all bic's
 		id = 0
 		dev_type = ini.get_str('DEVICE','Id/{}/Type'.format(id),"")
+		self.bat.cfg(ini)
 		if dev_type == 'BIC2200-24CAN':
 			dev = CBicDev2200_24(id)
 			dev.cfg(ini)
