@@ -11,7 +11,7 @@
 # - variables plausibility check
 # - programming missing functions 
 # - current and voltage maximum settings
-VER = "0.2.71"
+VER = "0.2.72"
 # steve 08.06.2023  Version 0.2.1
 # steve 10.06.2023  Version 0.2.2
 # macGH 15.06.2023  Version 0.2.3
@@ -30,11 +30,13 @@ VER = "0.2.71"
 # steve 06.02.2024 Version 0.2.7
 #       - rename first variable statusread to outputread
 #       - statusread now fully functional          
-# hamstie 05.04.2024 Version 0.2.71 class implementation of bic2200.py
-#       - worked as module
+# hamstie 08.04.2024 Version 0.2.72 class implementation of bic2200.py
+#       - worked as a module
 #       - add exception for can read timeouts
 #       - removed some boilercode
 #       - return list of fault-bits for sttus processing
+#       + dump()
+#       - init_mode try to disable parameter eeprom write mode
 
 import os
 import can
@@ -100,6 +102,7 @@ def bic22_commands():
     print("")
     print("       tempread             -- read power supply temperature")
     print("       typeread             -- read power supply type")
+    print("       dump                 -- dump supply info type, software, revision")
     print("       statusread           -- read power supply status")
     print("       faultread            -- read power supply fault status")    
     print("")
@@ -108,7 +111,7 @@ def bic22_commands():
     print("")
     print("       init_mode            -- init BIC-2200 bi-directional battery mode")
     print("")
-    print("       <value> = amps oder volts * 100 --> 25,66V = 2566")
+    print("       <value> = amps or volts * 100 --> 25,66V = 2566")
     print("")
     print("       Version {} ".format(VER))
 
@@ -136,11 +139,12 @@ class CBic:
     e_state_off = 0
     e_state_on  = 1
 
-    def __init__(self,can_dev='can0' ,can_adr=CAN_ADR):
-        self.can0 = None
-        self.can_dev = can_dev
+    def __init__(self,can_chan_id='can0' ,can_adr=CAN_ADR):
+        self.can_chan = None
+        self.can_chan_id = can_chan_id
         self.can_adr = can_adr
-        self.fault_update = True # fault was changed update fault if flag was set
+        self.persist = True # for command line switch  to true (another error handling for can read/write errors)
+        self.fault_changed = True # fault was changed update fault if this flag was set
         self.d_fault = {} # key is the name value is a tupel of active(1) and fault-count
         self.d_fault['fan'] =    {'active':0,'cnt':0,'desc':"fanspeed abnormal"}
         self.d_fault['otp'] =    {'active':0,'cnt':0,'desc':"over temperature protection"}
@@ -152,10 +156,12 @@ class CBic:
         self.d_fault['acRange'] ={'active':0,'cnt':0,'desc':"ac grid range"}
         self.d_fault['dcOff'] =  {'active':0,'cnt':0,'desc':"dc off"}
         self.d_fault['eeprom'] = {'active':0,'cnt':0,'desc':"eeprom fault"}
-        self.d_fault['can'] =    {'active':0,'cnt':0,'desc':"can-com error / read-tmo"}       
+        self.d_fault['can'] =    {'active':-1,'cnt':0,'desc':"can-com error / read-tmo"} # -1 change on startup
 
+        self.d_info = {} # modelName,firmRev....
+       
         try:
-            self.can0 = can.interface.Bus(channel = self.can_dev, bustype = 'socketcan')
+            self.can_chan = can.interface.Bus(channel = self.can_chan_id, bustype = 'socketcan')
         except Exception as e:
             print(e)
             print("CAN INTERFACE NOT FOUND. TRY TO BRING UP CAN DEVICE FIRST WITH -> can_up")
@@ -163,29 +169,29 @@ class CBic:
 
     # init can device
     @staticmethod
-    def can_up():
-        os.system('sudo ip link set {} up type can bitrate {}'.format('can0','250000'))
-        os.system('sudo ifconfig {} txqueuelen 65536'.format('can0'))
+    def can_up(can_chan_id = 'can0',bit_rate = 250000):
+        os.system('sudo ip link set {} up type can bitrate {}'.format(can_chan_id,bit_rate))
+        os.system('sudo ifconfig {} txqueuelen 65536'.format(can_chan_id))
        
     # init serial can device
     @staticmethod
-    def can_up_serial(dev_node = CAN_DEVICE):
+    def can_up_serial(can_chan_id = 'can0',dev_node = CAN_DEVICE):
         os.system('sudo slcand -f -s5 -c -o ' + dev_node)
-        os.system('sudo ip link set up {}'.format('can0'))
+        os.system('sudo ip link set up {}'.format(can_chan_id))
     
     @staticmethod
-    def can_down():
-        os.system('sudo ip link set can0 down')
+    def can_down(can_chan_id = 'can0'):
+        os.system('sudo ip link set {} down'.format(can_chan_id))
 
     def can_shutdown(self):
-        if self.can0 is not None:
-            self.can0.shutdown()
+        if self.can_chan is not None:
+            self.can_chan.shutdown()
 
     def can_send_msg(self,lst_data):
         msg = can.Message(arbitration_id=self.can_adr, data=lst_data, is_extended_id=True)
         
         try:
-            self.can0.send(msg)
+            self.can_chan.send(msg)
         except can.CanError:
             print("CAN send error")
             raise RuntimeError("can't send can message") 
@@ -193,31 +199,42 @@ class CBic:
 
     #@return list of values
     def can_rcv_raw(self, tmo=0.5):
-        msgr = self.can0.recv(tmo)
+        msgr = self.can_chan.recv(tmo)
         if msgr is None:
             print('Timeout occurred, no message.')
+            if self.persist is False:
+                sys.exit(2)
             raise TimeoutError()
-            #return []
-        #print("rcv:" + str(msgr))
         return str(msgr).split(msgr)
 
     # receive function
     def can_receive(self):
-        msgr_split = self.can_rcv_raw()
+        try:
+            msgr_split = self.can_rcv_raw()
+        except TimeoutError:
+            return None
         hexval = (msgr_split[11]+ msgr_split[10])
         print (int(hexval,16))
         return hexval
     
     # receive function
     def can_receive_byte(self):
-        msgr_split = self.can_rcv_raw()
+        try:
+            msgr_split = self.can_rcv_raw()
+        except TimeoutError:
+            return None
+
         hexval = (msgr_split[10])
         print (int(hexval,16))
         return hexval
 
     # receive function
     def can_receive_char(self):
-        msgr_split = self.can_rcv_raw()
+        try:
+            msgr_split = self.can_rcv_raw()
+        except TimeoutError:
+            return None
+
         s = bytearray.fromhex(msgr_split[10]+msgr_split[11]+msgr_split[12]+msgr_split[13]+msgr_split[14]+msgr_split[15]).decode()
         #print(s)
         return s
@@ -250,13 +267,13 @@ class CBic:
         
         if rw==CBic.e_cmd_read:
             self.can_send_msg([commandlowbyte, commandhighbyte])
-            v = self.can_receive()
+            return self.can_receive()
         else:
             valhighbyte = int(val) >> 8
             vallowbyte  = int(val) & 0xFF
             v=val
             self.can_send_msg([commandlowbyte,commandhighbyte,vallowbyte,valhighbyte])
-        return int(v)
+            return int(v)
 
     def charge_current(self,rw,val=0): #0=read, 1=set
         # print ("read/set charge current")
@@ -267,13 +284,13 @@ class CBic:
         
         if rw==CBic.e_cmd_read:
             self.can_send_msg([commandlowbyte,commandhighbyte])
-            v = self.can_receive()
+            return self.can_receive()
         else:
             valhighbyte = int(val) >> 8
             vallowbyte  = int(val) & 0xFF
             v=val
             self.can_send_msg([commandlowbyte,commandhighbyte,vallowbyte,valhighbyte])
-        return int(v)
+            return int(v)
 
     def discharge_voltage(self,rw,val=0): #0=read, 1=set
         # print ("read/set discharge voltage")
@@ -284,13 +301,13 @@ class CBic:
         
         if rw==CBic.e_cmd_read:
             self.can_send_msg([commandlowbyte,commandhighbyte])
-            v = self.can_receive()
+            return self.can_receive()
         else:
             valhighbyte = int(val) >> 8
             vallowbyte  = int(val) & 0xFF
             v=val
             self.can_send_msg([commandlowbyte,commandhighbyte,vallowbyte,valhighbyte])
-        return int(v)
+            return int(v)
 
     def discharge_current(self,rw,val=0): #0=read, 1=set
         # print ("read/set charge current")
@@ -301,13 +318,13 @@ class CBic:
         
         if rw==CBic.e_cmd_read:
             self.can_send_msg([commandlowbyte,commandhighbyte])
-            v = self.can_receive()
+            return self.can_receive()
         else:
             valhighbyte = int(val) >> 8
             vallowbyte  = int(val) & 0xFF
             v=val
             self.can_send_msg([commandlowbyte,commandhighbyte,vallowbyte,valhighbyte])
-        return int(v)
+            return int(v)
   
 
     def vread(self):
@@ -318,8 +335,7 @@ class CBic:
         commandhighbyte = 0x00
         commandlowbyte = 0x60
         self.can_send_msg([commandlowbyte,commandhighbyte])
-        v = self.can_receive()
-        return int(v)
+        return self.can_receive()
 
     def cread(self):
         # print ("read dc current")
@@ -332,6 +348,9 @@ class CBic:
         self.can_send_msg([commandlowbyte,commandhighbyte])    
 
         msgr_split = self.can_rcv_raw()
+        if msgr_split is None:
+            return None
+        
         hexval = (msgr_split[11]+ msgr_split[10])
 
         # quick and primitive solution to determine the 
@@ -342,7 +361,6 @@ class CBic:
             cval = cval - 65536
         
         print (cval)
-
         return cval
    
 
@@ -355,55 +373,59 @@ class CBic:
         commandlowbyte = 0x50
 
         self.can_send_msg([commandlowbyte,commandhighbyte])    
-        v = self.can_receive()
-        return v
+        return self.can_receive()
 
 
+    # sys config: check(and set) eeprom write flag
+    # battery-mode: check and set birirect-mode 
     def init_mode(self):
-        # Check CANBus communication mode
-        # Command Code 0x00C2
-        commandhighbyte = 0x00
-        commandlowbyte = 0xC2
-
-        self.can_send_msg([commandlowbyte,commandhighbyte])   
-        cm = self.can_receive()
-
-        # Check the battery mode
-        # Command Code 0x0140
-        # Check Battery mode
-        commandhighbyte = 0x01
-        commandlowbyte = 0x40
-        self.can_send_msg([commandlowbyte,commandhighbyte])
-        bm = self.can_receive()
         
-        if ((bm == "0001") and (cm == "0003")):
-            print ("The BIC-2200-xx-CAN is alread in the bi-directional battery mode with CANBus control. Nothing to do")
+        self.can_send_msg([0x040,0x01]) # bidirectional battery mode config
+        cfg_bm = self.can_receive()
+    
+        if cfg_bm is None or sys_cfg is None:
+            print("ERROR can't init mode")
+            return None
+
+        flag_bidirect = get_normalized_bit(int(cfg_bm), bit_index=0)
+        if flag_eeprom_write ==0:
+            print('ini_mode enable bidirect mode, need repowering !!!')
+            #cfg_bm = cfg_bm | 0x01 # set bit 0
+            set_bit(cfg_bm,0)
+            cfg_bm_h = int(cfg_bm) >> 8
+            cfg_bm_l  = int(cfg_bm) & 0xFF
+            self.can_send_msg([0x40,0x01,cfg_bm_l,cfg_bm_h])
+            time.sleep(1)
+            exit(0)
+
+        self.can_send_msg([0xC2,0x00]) #  SYS-Config
+        sys_cfg = self.can_receive()
+        if sys_cfg is None:
+            print("ERROR ini_mode")
+            return None
         
-        else:
+        sys_cfg_h = int(sys_cfg) >> 8
+        sys_cfg_l  = int(sys_cfg) & 0xFF
+        flag_eeprom_write = get_normalized_bit(int(sys_cfg_h), bit_index=2)
+        if flag_eeprom_write >0:
+            # write value to eeprom enabled
+            print('ini_mode write parameter to eeprom enabled -> disabled')
+            #sys_cfg_h = sys_cfg_h  & ~(1 << 2) # clear bit 10
+            clear_bit(sys_cfg_h,1)
+            self.can_send_msg([0xC2,0x00,sys_cfg_l,sys_cfg_h])
+            time.sleep(1)
             
-            print ("Set the Charge/Discharge Mode of the BIC-2200-xx-CAN.")
-            print ("Only needed once to set up the Device and to configure the 'bi-directional battery mode'.")
-            print ("It is recommended do disconnect the battery/load for this operation.")
-            print ("Check manual if you are not shure what is the correct mode!")
-            modein = input ("Do you want to change the mode? yes/no : ")
-            
-            if modein == "yes":
-                # Command Code 0x00C2
-                # Activate CANBus communication mode
-                commandhighbyte = 0x00
-                commandlowbyte = 0xC2
-                val = 0x03
-                #self.can_send_msg([commandlowbyte,commandhighbyte])
-                time.sleep(1)
-
-                # Command Code 0x0140
-                # Set bi-directional battery mode
-                commandhighbyte = 0x01
-                commandlowbyte = 0x40
-                val = 0x01
-                #self.can_send_msg([commandlowbyte, commandhighbyte,val])
-                print ("Repower the device to activate the new mode")
-
+        flag_can_ctrl = get_normalized_bit(int(sys_cfg_l), bit_index=0)
+        if flag_eeprom_write ==0:
+            print('ini_mode enable can ctrl disabled -> enabled')
+            #sys_cfg_l = sys_cfg_l  | 0x01 # set bit 0
+            set_bit(sys_cfg_h,0)
+            self.can_send_msg([0xC2,0x00,sys_cfg_l,sys_cfg_h])
+            time.sleep(1)
+        
+        if self.persist is False:
+            print("init_mode done")
+        return 0
 
 
     def BIC_chargemode(self,val): #0=charge, 1=discharge
@@ -458,6 +480,35 @@ class CBic:
 
         return v
 
+    def dump(self):
+
+        commandhighbyte = 0x00
+        commandlowbyte = 0x82
+
+        self.can_send_msg([commandlowbyte,commandhighbyte])
+        s1 = self.can_receive_char()
+
+        commandlowbyte = 0x83
+        self.can_send_msg([commandlowbyte,commandhighbyte])
+        s2 = self.can_receive_char()
+        
+        if s1 is None or s2 is None:
+            return None
+
+        s=s1+s2
+        self.d_info['modelName'] = s
+
+        # firmware version
+        
+        self.can_send_msg([0x84,0x00])
+        self.d_info['firmRev'] = int(self.can_receive()) # to bytes hexvalue mcu0 and mcu1
+
+        self.can_send_msg([0xC2,0x00])
+        self.d_info['sysCfg'] = int(self.can_receive()) # to bytes hexvalue mcu0 and mcu1
+
+        print('dev-info:' + str(self.d_info))
+        return s
+
     def typeread(self):
         # print ("read power supply type")
         # Command Code 0x0082
@@ -501,12 +552,12 @@ class CBic:
 
         self.can_send_msg([commandlowbyte,commandhighbyte])
         sval = self.can_receive()
-        lbits=[]
-        for bit in range(0,6):
-            lbits.append(get_normalized_bit(int(sval),bit)) 
+
+        if sval is None:
+            return None
 
         if silence is True:
-            return lbits
+            return self.fault_changed
 
         # deconding 
         s = get_normalized_bit(int(sval), bit_index=0)
@@ -540,101 +591,77 @@ class CBic:
             print ("NOT in initialization status")     
             
         s = get_normalized_bit(int(sval), bit_index=5)
+        self.fault_update('eeprom',1)
         if s == 0:
             print ("EEPROM data access normal")
         else:
             print ("EEPROM data access error") 
         
-        return lbits
+        return self.fault_changed
 
-    # only usefull for the non-command line mode
+    """ update fault dir
+        @return True if fault-entry has changed 
+    """
     def fault_update(self,name,new_state):
         fault = self.d_fault[name]
-        if fault.active != new_state:
+        if fault['active'] != new_state:
             if new_state >0:
-                fault.cnt +=1
-            fault.active = new_state
-            self.fault_update = True
-            print('fault state changed {} = {} cnt:{}'.format(name,new_state,fault.cnt))
+                fault['cnt'] +=1
+            fault['active'] = new_state
+            self.fault_changed = True
+            print('fault state changed {} = {} cnt:{}'.format(name,new_state,fault['cnt']))
+            return self.fault_changed
+        return False
 
     """ Read System Fault Status 
         Command Code 0x0040
-        - set and count faults   
+        - set and count faults
+        @retun true if something has changed
     """
     def faultread(self):
-        
+        self.fault_changed = False  
         commandhighbyte = 0x00
         commandlowbyte = 0x40
 
         self.can_send_msg([commandlowbyte,commandhighbyte])
         sval = self.can_receive()
+        if sval is None:
+            return self.fault_update('can',1)
+        else:
+            self.fault_update('can',0)
 
-        # deconding
+        # decoding
         s = get_normalized_bit(int(sval), bit_index=0)
         self.fault_update('fan',s)
-        if s == 0:
-            print ("FAN_FAIL: Fan working normally")
-        else:
-            print ("FAN_FAIL: Fan locked")
-
 
         s = get_normalized_bit(int(sval), bit_index=1)
         self.fault_update('otp',s)
-        if s == 0:
-            print ("OTP: Internal temperature normal")
-        else:
-            print ("OTP: Internal temperature abnormal")
-
         
         s = get_normalized_bit(int(sval), bit_index=2)
         self.fault_update('ovp',s)
-        if s == 0:
-            print ("OVP: DC voltage normal")
-        else:
-            print ("OVP: DC over voltage protected")
 
         s = get_normalized_bit(int(sval), bit_index=3)
         self.fault_update('olp',s)
-        if s == 0:
-            print ("OLP: DC current normal")
-        else:
-            print ("OLP: DC over current protected")
 
         s = get_normalized_bit(int(sval), bit_index=4)
         self.fault_update('short',s)
-        if s == 0:
-            print ("SHORT: Short circuit do not exist")
-        else:
-            print ("SHORT: Short circuit protected")
 
         s = get_normalized_bit(int(sval), bit_index=5)
         self.fault_update('acRange',s)
-        if s == 0:
-            print ("AC_FAIL: AC range normal")
-        else:
-            print ("AC_FAIL: AC range abnormal")
-
+        
         s = get_normalized_bit(int(sval), bit_index=6)
         self.fault_update('dcOff',s)
-        if s == 0:
-            print ("OP_OFF: DC turned on")
-        else:
-            print ("OP_OFF: DC turned off")
 
         s = get_normalized_bit(int(sval), bit_index=7)
         self.fault_update('otpHi',s)
-        if s == 0:
-            print ("HI_TEMP: Internal temperature normal")
-        else:
-            print ("HI_TEMP: Internal temperature abnormal")
     
         s = get_normalized_bit(int(sval), bit_index=8)
         self.fault_update('ovpHi',s)
-        if s == 0:
-            print ("HV_OVP: HV voltage normal")
-        else:
-            print ("HV_OVP: HV over voltage preotected")
+        
+        if self.persist is False:
+            print("fault-state:" + str(self.d_fault))
 
+        return self.fault_changed
 
 
 def command_line_argument(bic):
@@ -645,6 +672,8 @@ def command_line_argument(bic):
         error = 1
         return
     
+    bic.persist = False
+
     if   sys.argv[1] in ['on']:        bic.operation(1)
     elif sys.argv[1] in ['off']:       bic.operation(0)
     elif sys.argv[1] in ['outputread']:bic.operation_read()
@@ -664,6 +693,7 @@ def command_line_argument(bic):
     elif sys.argv[1] in ['dirread']:   bic.BIC_chargemode_read()
     elif sys.argv[1] in ['tempread']:  bic.tempread()
     elif sys.argv[1] in ['typeread']:  bic.typeread()
+    elif sys.argv[1] in ['dump']:      bic.dump()
     elif sys.argv[1] in ['statusread']:bic.statusread()
     elif sys.argv[1] in ['faultread']: bic.faultread()
     elif sys.argv[1] in ['can_up']:    CBic.can_up()

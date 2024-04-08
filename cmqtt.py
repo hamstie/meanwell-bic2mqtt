@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-VER_CMQTT = '1.2'
+VER_CMQTT = '1.3'
 
 # import mqtt
 import paho.mqtt.client as mqtt
@@ -7,7 +7,8 @@ import json
 
 """
  - MQTT Client Object module
-   hamstie fst:fst:04.04.2024 lst:04.04.2024
+   hamstie fst:fst:04.04.2024 lst:08.04.2024
+   + add user_data for subscribe
 """
 class CMQTT:
 
@@ -19,6 +20,7 @@ class CMQTT:
 			self.qos=0 # default QoS:0
 			self.retain=False
 			self.cb=None # for subscribed messages callback function to call
+			self.cb_user_data = None
 			
 		def pp(self):
 			return str("top:'" + self.topic + "' pl:'" + self.payload + "'")
@@ -115,11 +117,11 @@ class CMQTT:
 		new_msg.tokenize()
 		if subsc_msg is not None:
 			## since V1.1 subsc_msg.cb.cb_mqtt_sub_event(self,self.user_data,new_msg)  # direct string match between topic and key
-			subsc_msg.cb(self,self.user_data,new_msg)  # direct string match between topic and key
+			subsc_msg.cb(self,subsc_msg.cb_user_data,new_msg)  # direct string match between topic and key
 		else: # possible to subscribe a bunch of topics via 'foo/#' or 'foo/+/bar'
 			for k,subsc_msg in self.dSubscEvent.items():
 				if match_topic(subsc_msg.topic_tok,new_msg) is True:
-					subsc_msg.cb(self,self.user_data,new_msg)
+					subsc_msg.cb(self,subsc_msg.cb_user_data,new_msg)
 					# inform all break # single call ?
 		
 		if self.on_message is not None:
@@ -128,12 +130,22 @@ class CMQTT:
 
 	# if the appened toppic was subscribed/received from broker, this callback will be triggered
 	# obj_func=obj.cb_mqtt_sub_event(mqttc,user_data,mqtt_msg)
-	def append_subscribe_topic(self,top,obj_func):
+	def append_subscribe_topic(self,top : str,obj_func):
 		msg = CMQTT.CMSG(top,'pldummy')
 		msg.tokenize()
 		msg.cb=obj_func
 		self.dSubscEvent[top]=msg
 		self.mqtt.subscribe(top)
+	
+	# if the appened toppic was subscribed/received from broker, this callback will be triggered
+	# obj_func=obj.cb_mqtt_sub_event(mqttc,user_data,mqtt_msg)
+	def append_subscribe(self,msg : CMSG):
+		if msg.cb is None or msg.topic is None or len(msg.topic)==0:
+			raise RuntimeError("invalid mqtt-msg") 
+		
+		msg.tokenize()
+		self.dSubscEvent[msg.topic]=msg
+		self.mqtt.subscribe(msg.topic)
 
 
 	def set_auth(self,user,passwd):

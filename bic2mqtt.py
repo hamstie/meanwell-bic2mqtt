@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-APP_VER = "0.01"
+APP_VER = "0.02"
 APP_NAME = "bic2mqtt"
 
 """
- fst:05.04.2024 lst:05.04.2024
+ fst:05.04.2024 lst:08.04.2024
  Meanwell BIC2200-XXCAN to mqtt bridge
  V0.01  mqtt is running
  V0.00  No fuction yet, working on the app-frame
@@ -114,6 +114,14 @@ BIC Inverter Device Object:
  - charge control
 """
 class CBicDevBase():
+
+	e_onl_mode_offline	= 0	# offline not reachable
+	e_onl_mode_init		= 1 # init , init can bus, read version...
+	e_onl_mode_idle		= 2 # idle mode
+	e_onl_mode_running	= 3 # charging/discharging
+
+	s_onl_mode = ['offline','init','idle','running']
+
 	def __init__(self,id : int,type : str):
 		self.id = id	# device-id from ini
 		if type is None or len(type)==0:
@@ -122,26 +130,36 @@ class CBicDevBase():
 			self.type = type
 		
 		self.bic = None
-		
+		self.onl_mode = CBicDevBase.e_onl_mode_offline
+		self.system_voltage = 0 # needed for power calculation
+		self.top_charge_set = "" # topic to set a charge parameter  MQTT_T_APP + '/inv/' + str(self.id) +  '/charge/set'
+
 		self.info = {}
 		self.info['id'] = int(self.id)
 		self.info['type'] = self.type
-		self.info['fault'] = {'av':0,'eeprom':0,'fan':0,'temp':0,'dcV':0,'dcA':0,'shortC':0,'acGrid':0,'pfc':0}
-		self.info['tempC'] = -278
+		self.info['verSoft'] = ""
+		self.info['verHard'] = ""
 
 		self.state = {}
-		self.state['onlMode'] = "on" # [on,off]
+		self.state['onlMode'] = CBicDevBase.s_onl_mode[self.onl_mode]
+		self.state['opMode'] = 0  # device operating mode
+		
+		self.state['tempC'] = -278
 		self.state['acGridV'] = 0 # grid-volatge [V]
 		self.state['dcBatV'] = 0 # bat voltage DV [V]
-		self.state['batCapPc'] = 0 # bat capacity [%] 
-		self.state['dcBatA'] = 0  # bat [A] discharge[-] charge[+] ?
-		self.state['changeMode'] = "discharge" # [charge,discharge,none]
+		self.state['capBatPc'] = 0 # bat capacity [%]  @todo
+		
+		self.charge = {}
+		self.charge['chargeA'] = 0  # [A] discharge[-] charge[+]
+		self.charge['chargeP'] = 0  # [VA] discharge[-] charge[+]
+		self.charge['chargeSetA'] = 0 # [A] configured and readed value [A]  
+
 
 		self.fault = {} # dic of all fault-states
 
 		self.can_bit_rate = 0 # canbus baud-rate
 		self.can_adr = 0 # can address
-		self.can_dev = "" # can device node /dev/tty... for serial can interface
+		self.can_chan_id = "can0" # can channel-id 
 		self.cfg_max_vcharge100 = 0
 		self.cfg_min_vdischarge100 = 6000
 		self.cfg_max_ccharge100 = 0
@@ -151,30 +169,87 @@ class CBicDevBase():
 		self.cfg_tmo_info_ms = 4000 #timeslice update info
 		self.tmo_state_ms =  0 #timeslice update state
 		self.cfg_tmo_state_ms = 2000 #timeslice update state
+		self.tmo_charge_ms =  0 #timeslice update state
+		self.cfg_tmo_charge_ms = 2000 #timeslice update state
 	
 
-	# read from bic
+	# read from bic some common stuff
+	# 	@topic-pub <main-app>/inv/X/info
 	def	update_info(self):
 		self.info['id'] = int(self.id)
 		self.info['type'] = self.type
-		self.info['fault'] = {'av':0,'eeprom':0,'fan':0,'temp':0,'dcV':0,'dcA':0,'shortC':0,'acGrid':0,'pfc':0}
-		self.info['tempC'] = -278
+		self.info['verSoft'] = ""
+		self.info['verHard'] = ""
+		
 		jpl = json.dumps(self.info, sort_keys=False, indent=4)
 		global mqttc
 		mqttc.publish(MQTT_T_APP + '/inv/' + str(self.id) +  '/info',jpl,0,True) # retained
 
 
-	# read from bic
+	# read from bic the voltage and battery parameter 
+ 	# 	@topic-pub <main-app>/inv/X/state
 	def update_state(self):
-		self.state['onlMode'] = "on" # [on,off]
-		self.state['acGridV'] = 0 # grid-volatge [V]
-		self.state['dcBatV'] = 0 # bat voltage DV [V]
-		self.state['batCapPc'] = 0 # bat capacity [%] 
-		self.state['dcBatA'] = 0  # bat [A] discharge[-] charge[+] ?
-		self.state['changeMode'] = "discharge" # [charge,discharge,none]
+		
+		temp_c= self.bic.tempread()
+		if temp_c is not None:
+			self.state['tempC'] = int(temp_c)
+		else:
+			self.state['tempC'] = -278
+
+		op_mode = self.bic.operation_read()
+		if op_mode is None:
+			self.state['opMode'] = 0
+			self.onl_mode =  CBicDevBase.e_onl_mode_offline
+			self.state['onlMode'] = 0 # offline, read error
+		else:
+			self.state['opMode'] = op_mode
+		
+		self.state['onlMode'] = CBicDevBase.s_onl_mode[self.onl_mode]
+
+
+		if self.onl_mode > CBicDevBase.e_onl_mode_init:
+			volt = round(float(self.bic.vread()) / 100,2)
+			amp = round(float(self.bic.cread()) / 100,2)
+			ac_grid = round(float(self.bic.acvread()) / 100,0)
+	
+			self.state['acGridV'] = ac_grid	# grid-volatge [V]
+			self.state['dcBatV'] = volt 	# bat voltage DV [V]
+			self.state['capBatPc'] = 0 	# bat capacity [%] , attach CBattery object 
+		else:
+			self.state['acGridV'] = 0
+			self.state['dcBatV'] = 0
+
 		jpl = json.dumps(self.state, sort_keys=False, indent=4)
 		global mqttc
 		mqttc.publish(MQTT_T_APP + '/inv/' + str(self.id) +  '/state',jpl,0,True) # retained
+
+
+	"""	read from bic the charging/discharging parameter 
+ 		@topic-pub <main-app>/inv/X/charge
+	"""
+	def update_charge(self):
+		if self.onl_mode > CBicDevBase.e_onl_mode_init:
+			volt = round(float(self.bic.vread()) / 100,2)
+			amp = round(float(self.bic.cread()) / 100,2)
+			self.state['dcBatV'] = volt 	# bat voltage DV [V]
+			self.charge['chargeA'] = amp  	# bat [A] discharge[-] charge[+] ?
+			self.charge['chargeP'] = round(amp * volt)  # bat [VA] discharge[-] charge[+]
+			cdir = self.bic.BIC_chargemode_read()
+			if cdir == CBic.e_charge_mode_charge:
+				amp = round((self.bic.charge_current(CBic.e_cmd_read) / 100),2)
+			else:
+				amp = round((self.bic.discharge_current(CBic.e_cmd_read) / 100) * (-1),2)		
+
+			self.charge['chargeSetA'] = amp # [A] configured and readed value [A]  
+		else:
+			#self.state['dcBatV'] = 0 
+			self.charge['chargeA'] = 0
+			self.charge['chargeP'] = 0
+			self.charge['chargeSetA'] = 0  
+
+		jpl = json.dumps(self.state, sort_keys=False, indent=4)
+		global mqttc
+		mqttc.publish(MQTT_T_APP + '/inv/' + str(self.id) +  '/charge',jpl,0,False) # not retained
 
 
 	""" ini file config parameter
@@ -191,6 +266,8 @@ class CBicDevBase():
 		self.cfg_min_vdischarge100 = ini.get_int('DEVICE',kpfx() + "DischargeVoltage",self.cfg_min_vdischarge100)
 		self.cfg_max_ccharge100 = ini.get_int('DEVICE',kpfx() + "MaxChargeCurrent",self.cfg_max_ccharge100)
 		self.cfg_max_cdischarge100 = ini.get_int('DEVICE',kpfx() + "MaxDischargeCurrent",self.cfg_max_cdischarge100)
+		self.top_charge_set = MQTT_T_APP + '/inv/' + str(self.id) +  '/charge/set'
+
 		lg.info("init " + str(self))
 		#dischargedelay = int(config.get('Settings', 'DischargeDelay'))
 		
@@ -198,13 +275,42 @@ class CBicDevBase():
 	def __str__(self):
 		return "dev id:{} cfg-cv:{} cfg-dv:{} cc:{} cfg-dc:{}".format(self.id,self.cfg_max_vcharge100,self.cfg_min_vdischarge100,self.cfg_max_ccharge100,self.cfg_max_cdischarge100)
 
+	def start(self):
+		CBic.can_up(self.can_chan_id,self.can_bit_rate)
+		self.bic = CBic(self.can_chan_id,self.can_adr)
+		ret = self.bic.statusread()
+		if ret is None:
+			self.onl_mode = CBicDevBase.e_onl_mode_offline
+		else:
+			self.onl_mode = CBicDevBase.e_onl_mode_init
+			
+		self.bic.operation(1)
+		op_mode = self.bic.operation_read()
+		if op_mode is None:
+			self.state['opMode'] = 0
+			self.state['onlMode'] = 0 # offline, read error
+		else:
+			self.state['opMode'] = op_mode
+			if op_mode ==0:
+				self.e_onl_mode = CBicDevBase.e_onl_mode_idle
+			else:
+				self.e_onl_mode = CBicDevBase.e_onl_mode_running
+		
+		lg.info('dev id:{} started'.format(self.id))
+
+
+	# poll values from bic/inverter
+	# @topic-pub <main-app>/inv/X/fault
 	def poll(self,timeslive_ms):
 
-		if self.bic.fault_update is True:
-			self.bic.fault_update = False
-			jpl = json.dumps(self.bic.d_fault, sort_keys=False, indent=4)
-			global mqttc
-			mqttc.publish(MQTT_T_APP + '/inv/' + str(self.id) +  '/fault',jpl,0,True) # retained
+		if App.ts_6sec == 1:
+			fault_update = self.bic.faultread()
+			if fault_update is True:
+				jpl = json.dumps(self.bic.d_fault, sort_keys=False, indent=4)
+				global mqttc
+				mqttc.publish(MQTT_T_APP + '/inv/' + str(self.id) +  '/fault',jpl,0,True) # retained
+		elif App.ts_6sec == 2:
+			pass
 
 		if self.tmo_info_ms >=0:
 			self.tmo_info_ms -= timeslive_ms
@@ -217,6 +323,41 @@ class CBicDevBase():
 		else:
 			self.tmo_state_ms = self.cfg_tmo_state_ms
 			self.update_state()
+	
+		if self.tmo_charge_ms >=0:
+			self.tmo_charge_ms -= timeslive_ms
+		else:
+			self.tmo_charge_ms = self.cfg_tmo_charge_ms
+			self.update_charge()
+
+	""" set a new charge value in [A] 
+		val >0 charging the bat
+		val <0 discharging the bat
+	"""
+	def charge_set_amp(self,val_amp : int):
+		amp100 = 0 
+		if self.e_onl_mode >= CBicDevBase.e_onl_mode_idle:
+			
+			amp100 = int(val_amp * 100)
+			lg.info("set charge value to:{}A".format(val_amp / 100))
+			if amp100 >0:
+				if amp100 > self.cfg_max_ccharge100:
+					amp100 = self.cfg_max_ccharge100
+				self.bic.BIC_chargemode(CBic.e_charge_mode_charge)
+				self.bic.charge_current(CBic.e_cmd_write,amp100)
+			elif amp100 < 0:
+				if amp100 > self.cfg_max_cdischarge100:
+					amp100 = self.cfg_max_cdischarge100
+				self.bic.BIC_dischargemode(CBic.e_charge_mode_discharge)
+				self.bic.discharge_current(CBic.e_cmd_write,amp100)
+			
+		raise RuntimeError("invalid charge cmd val:" + val_amp)
+		return -1
+
+	def charge_set_pow(self,val_pow):
+		amp = int(vap_pow / val_pow)
+		self.charge_set_amp(amp)
+
 
 # device type 2200-24V CAN
 class CBicDev2200_24(CBicDevBase):
@@ -226,6 +367,7 @@ class CBicDev2200_24(CBicDevBase):
 		self.can_bit_rate = 250000 # canbus bit-rate
 		self.can_adr = 0x000C0300 # can address
 
+		self.system_voltage = 24 # needed for power calculation
 		self.cfg_vcharge100 = 2750
 		self.cfg_vdischarge100 = 2520
 		self.cfg_max_charge100 = 3500
@@ -241,14 +383,58 @@ class CBicDev2200_24(CBicDevBase):
 		super().cfg(ini)
 		if self.id >=0:
 			self.can_bit_rate = ini.get_int('DEVICE',kpfx() + "CanBitrate",250000)
-			CBic.can_up()
-			self.bic = CBic('can0',0x000C0300)
+			#CBic.can_up(self.can_chan,self.can_bit_rate)
+			#self.bic = CBic(self.can_chan,self.can_adr)
 			return 0
 		else:
 			return -1
 		
+	def start(self):
+		super().start()
+	
+
 	def poll(self,timeslive_ms):
 		super().poll(timeslive_ms)	
+
+
+
+""" @todo
+BIC control and regulation class 
+- control the bic charge and discharge function
+"""
+class CBicCtrlBase():
+
+	DEF_GRID_TMO = 18 # seconds to switch off bic-dev if we get no new gid-power values
+
+	def __init__(self,bic_dev : CBicDevBase):
+		self.bic_dev = bic_dev # device2 control
+		self.tmo_grid_sec = CBicCtrlBase.DEF_GRID_TMO # grid tmo timer
+
+	def cfg(self,ini):
+		pass
+
+	def poll(self,timeslive_ms):
+		pass
+
+	""" received a new value from the grid power sensor
+		power value: >0 receive power from the public-grid  
+		power value: <0 inject power to the public-grid 
+	"""
+	def on_cb_grid_power(self,pow_val):
+		self.tmo_grid_sec = CBicCtrlBase.DEF_GRID_TMO
+		
+
+""" @todo
+BIC control and regulation class 
+- simple one charge and discharge depends on power grid value  
+"""
+class CBicCtrlSimple(CBicCtrlBase):
+	
+	def __init__(self,bic_dev : CBicDevBase):
+		super().__init__(bic_dev)
+
+
+
 
 class App:
 	ts_1000ms=0 # [ms]
@@ -270,7 +456,7 @@ class App:
 		[DEVICE]
 		@param dbkey-str [MODEM]Id/X/Type def:empty well known modem type "BIC2200"
 		@param dbkey-int [MODEM]Id/X/CanBaudRate def:0 Baudrate
-		@topic-sub <main-app>/bic/<id>/set some bic charge/discharge regulation values {"chargeC100","20"} or {"dischargeC100","20"}
+		@topic-sub <main-app>/inv/X/charge/set {"var":[chargeA,chargeP],"val":[ampere or power]]}
 	"""
 	def cfg(self,ini):
 		# @future-use iterate over all bic's
@@ -282,17 +468,36 @@ class App:
 			dev.cfg(ini)
 			self.dev_bic[id] = dev
 			if len(self.dev_bic) >0:
-				mqttc.append_subscribe_topic(MQTT_T_APP + "/bic/{}/set".format(id),self.cb_mqtt_sub_event)
+				msg = CMQTT.CMSG(dev.top_charge_set,"dummypl")
+				msg.cb = self.cb_mqtt_sub_event
+				msg.cb_user_data = dev
+				mqttc.append_subscribe(msg)
 
-		
-	# @todo set a bic value 
+	""" @todo set charging parameter
+		@topic-sub <main-app>/inv/X/charge/set {"var":[chargeA,chargeP],"val":[ampere or power]]}
+	"""
 	def cb_mqtt_sub_event(self,mqttc,user_data,mqtt_msg):
 		print('on subsc:' + mqtt_msg.pp())
+		dev = user_data
+		if dev.top_charge_set == mqtt_msg.topic:
+			try:
+				dpl = json.loads(mqtt_msg.payload)
+				if 'var' in dpl and 'val' in dpl:
+					if dpl['var'] == 'chargeA':
+						dev.charge_set_amp(dpl['val'])
+					elif dpl['var'] == 'chargeP':
+						dev.charge_set_pow(dpl['val'])
+			except:
+				pass
+		
+
 
 	def start(self):
 		if self.started is False:
 			self.started=True
 			#self.mqttc.publish(MQTT_T_APP + '/state/devall',json.dumps(lst_dev_cfg, sort_keys=False, indent=4),0,True) # retained
+			for dev in self.dev_bic.values():
+				dev.start()
 
 	def poll(self,timeslice_ms):
 		if self.started is False:
