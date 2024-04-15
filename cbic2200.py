@@ -32,7 +32,7 @@ VER = "0.2.72"
 #       - statusread now fully functional
 # hamstie 15.04.2024 Version 0.2.72 class implementation of bic2200.py
 #       - worked as a module
-#       - add exception for can read timeouts
+#       + add exception for can read timeouts
 #       - removed some boilercode
 #       - return list of fault-bits for sttus processing
 #       + dump()
@@ -382,6 +382,34 @@ class CBic:
     # battery-mode: check and set birirect-mode
     def init_mode(self):
 
+        self.can_send_msg([0xC2,0x00]) #  SYS-Config
+        sys_cfg = self.can_receive()
+        
+        if sys_cfg is None:
+            print("ERROR ini_mode")
+            return None
+
+        print('syscfg:' + hex(sys_cfg))
+        sys_cfg_h = int(sys_cfg) >> 8
+        sys_cfg_l  = int(sys_cfg) & 0xFF
+
+        flag_can_ctrl = get_normalized_bit(int(sys_cfg_l), bit_index=0)
+        if flag_can_ctrl == 0:
+            sys_cfg_l = set_bit(sys_cfg_l,0)
+            print('ini_mode can control disabled -> enabled') 
+            self.can_send_msg([0xC2,0x00,sys_cfg_l,sys_cfg_h])
+            time.sleep(1)
+
+        flag_eeprom_write = get_normalized_bit(int(sys_cfg_h), bit_index=2)
+        if flag_eeprom_write ==0:
+            # write value to eeprom enabled
+            print('ini_mode write parameter to eeprom enabled -> disabled')
+            #sys_cfg_h = sys_cfg_h  & ~(1 << 2) # clear bit 10
+            sys_cfg_h = set_bit(sys_cfg_h,2)
+            self.can_send_msg([0xC2,0x00,sys_cfg_l,sys_cfg_h])
+            time.sleep(1)
+
+
         self.can_send_msg([0x040,0x01]) # bidirectional battery mode config
         cfg_bm = self.can_receive()
 
@@ -393,31 +421,13 @@ class CBic:
         if flag_bidirect ==0:
             print('ini_mode enable bidirect mode, need repowering !!!')
             #cfg_bm = cfg_bm | 0x01 # set bit 0
-            set_bit(cfg_bm,1)
+            cfg_bm = set_bit(cfg_bm,1)
             cfg_bm_h = int(cfg_bm) >> 8
             cfg_bm_l  = int(cfg_bm) & 0xFF
             self.can_send_msg([0x40,0x01,cfg_bm_l,cfg_bm_h])
             time.sleep(1)
             #exit(0)
 
-        self.can_send_msg([0xC2,0x00]) #  SYS-Config
-        sys_cfg = self.can_receive()
-        
-        if sys_cfg is None:
-            print("ERROR ini_mode")
-            return None
-
-        print('syscfg:' + hex(sys_cfg))
-        sys_cfg_h = int(sys_cfg) >> 8
-        sys_cfg_l  = int(sys_cfg) & 0xFF
-        flag_eeprom_write = get_normalized_bit(int(sys_cfg_h), bit_index=2)
-        if flag_eeprom_write ==0:
-            # write value to eeprom enabled
-            print('ini_mode write parameter to eeprom enabled -> disabled')
-            #sys_cfg_h = sys_cfg_h  & ~(1 << 2) # clear bit 10
-            set_bit(sys_cfg_h,2)
-            self.can_send_msg([0xC2,0x00,sys_cfg_l,sys_cfg_h])
-            time.sleep(1)
 
         if self.persist is False:
             print("init_mode done")
@@ -497,10 +507,13 @@ class CBic:
         # firmware version
 
         self.can_send_msg([0x84,0x00])
-        self.d_info['firmRev'] = int(self.can_receive()) # to bytes hexvalue mcu0 and mcu1
+        self.d_info['firmRev'] = hex(self.can_receive()) # to bytes hexvalue mcu0 and mcu1
 
         self.can_send_msg([0xC2,0x00])
-        self.d_info['sysCfg'] = int(self.can_receive()) # to bytes hexvalue mcu0 and mcu1
+        self.d_info['sysCfg'] = hex(self.can_receive()) # to bytes hexvalue mcu0 and mcu1
+
+        self.can_send_msg([0x86,0x00])
+        self.d_info['manDate'] = self.can_receive_char() # manufac. date
 
         if self.persist is False:
             print('dev-info:' + str(self.d_info))
