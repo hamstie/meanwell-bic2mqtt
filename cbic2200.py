@@ -2,35 +2,35 @@
 # cbic2200.py
 # Controlling the Mean Well BIC-2200-CAN
 # tested only with the 24V Version BIC-2200-CAN-24
-# Please note:  this software to control the BIC-2200 is not yet complete 
-# and also not fully tested. The BIC-2200 should not be operated unattended. 
+# Please note:  this software to control the BIC-2200 is not yet complete
+# and also not fully tested. The BIC-2200 should not be operated unattended.
 # There is no error handling yet !!!
 
 # What is missing:
 # - error handling
 # - variables plausibility check
-# - programming missing functions 
+# - programming missing functions
 # - current and voltage maximum settings
 VER = "0.2.72"
 # steve 08.06.2023  Version 0.2.1
 # steve 10.06.2023  Version 0.2.2
 # macGH 15.06.2023  Version 0.2.3
 #       - support for Meanwell NPB-x Charger
-#       - new config area   
+#       - new config area
 # steve 16.06.2023  Version 0.2.4
-#       - fault and status queries    
+#       - fault and status queries
 # steve 19.06.2023  Version 0.2.4
-#       - fault queries completed  
+#       - fault queries completed
 # steve 09.07.2023  Version 0.2.5
-#       - init_mode added   
+#       - init_mode added
 # steve 20.07.2023 Version 0.2.6
 #       - directionread
 #       - statusread
-#       - can_receive_byte  
+#       - can_receive_byte
 # steve 06.02.2024 Version 0.2.7
 #       - rename first variable statusread to outputread
-#       - statusread now fully functional          
-# hamstie 08.04.2024 Version 0.2.72 class implementation of bic2200.py
+#       - statusread now fully functional
+# hamstie 15.04.2024 Version 0.2.72 class implementation of bic2200.py
 #       - worked as a module
 #       - add exception for can read timeouts
 #       - removed some boilercode
@@ -52,7 +52,7 @@ error = 0
 #########################
 #ID = Cortroller Message ID + Device ID [00-07]
 #Be sure you select the right CAN_ADR and add your Device-ID (Jumper block)
-#BIC-2200 00 - 07, NPB 00 - 03  
+#BIC-2200 00 - 07, NPB 00 - 03
 #
 #BIC-2200
 CAN_ADR = 0x000C0300
@@ -65,7 +65,7 @@ CAN_ADR = 0x000C0300
 #If you use a RS232 to CAN Adapter which ich socketCAN compartible, switch to 1
 #e.g. USB-Tin www.fischl.de
 # If you use a CAN Hat (waveshare) set USE_RS232_CAN = 0
-#Add the rigth /dev/tty device here 
+#Add the rigth /dev/tty device here
 USE_RS232_CAN = 0
 CAN_DEVICE = '/dev/ttyACM0'
 
@@ -104,7 +104,7 @@ def bic22_commands():
     print("       typeread             -- read power supply type")
     print("       dump                 -- dump supply info type, software, revision")
     print("       statusread           -- read power supply status")
-    print("       faultread            -- read power supply fault status")    
+    print("       faultread            -- read power supply fault status")
     print("")
     print("       can_up               -- start can bus")
     print("       can_down             -- shut can bus down")
@@ -134,8 +134,8 @@ class CBic:
     e_charge_mode_discharge=1
 
     e_cmd_read = 0
-    e_cmd_write = 1 
-    
+    e_cmd_write = 1
+
     e_state_off = 0
     e_state_on  = 1
 
@@ -159,7 +159,7 @@ class CBic:
         self.d_fault['can'] =    {'active':-1,'cnt':0,'desc':"can-com error / read-tmo"} # -1 change on startup
 
         self.d_info = {} # modelName,firmRev....
-       
+
         try:
             self.can_chan = can.interface.Bus(channel = self.can_chan_id, bustype = 'socketcan')
         except Exception as e:
@@ -172,13 +172,13 @@ class CBic:
     def can_up(can_chan_id = 'can0',bit_rate = 250000):
         os.system('sudo ip link set {} up type can bitrate {}'.format(can_chan_id,bit_rate))
         os.system('sudo ifconfig {} txqueuelen 65536'.format(can_chan_id))
-       
+
     # init serial can device
     @staticmethod
     def can_up_serial(can_chan_id = 'can0',dev_node = CAN_DEVICE):
         os.system('sudo slcand -f -s5 -c -o ' + dev_node)
         os.system('sudo ip link set up {}'.format(can_chan_id))
-    
+
     @staticmethod
     def can_down(can_chan_id = 'can0'):
         os.system('sudo ip link set {} down'.format(can_chan_id))
@@ -189,13 +189,13 @@ class CBic:
 
     def can_send_msg(self,lst_data):
         msg = can.Message(arbitration_id=self.can_adr, data=lst_data, is_extended_id=True)
-        
+
         try:
             self.can_chan.send(msg)
         except can.CanError:
             print("CAN send error")
-            raise RuntimeError("can't send can message") 
-        
+            raise RuntimeError("can't send can message")
+
 
     #@return list of values
     def can_rcv_raw(self, tmo=0.5):
@@ -205,18 +205,19 @@ class CBic:
             if self.persist is False:
                 sys.exit(2)
             raise TimeoutError()
-        return str(msgr).split(msgr)
+        return str(msgr).split()
 
-    # receive function
+    # receive function @reurn int value
     def can_receive(self):
         try:
             msgr_split = self.can_rcv_raw()
         except TimeoutError:
             return None
-        hexval = (msgr_split[11]+ msgr_split[10])
-        print (int(hexval,16))
-        return hexval
-    
+        #print(msgr_split)
+        hexval = msgr_split[11] + msgr_split[10]
+        #print (str(hexval))
+        return int(hexval,16)
+
     # receive function
     def can_receive_byte(self):
         try:
@@ -225,8 +226,9 @@ class CBic:
             return None
 
         hexval = (msgr_split[10])
-        print (int(hexval,16))
-        return hexval
+        #print (int(hexval,16))
+        return int(hexval,16)
+
 
     # receive function
     def can_receive_char(self):
@@ -238,7 +240,7 @@ class CBic:
         s = bytearray.fromhex(msgr_split[10]+msgr_split[11]+msgr_split[12]+msgr_split[13]+msgr_split[14]+msgr_split[15]).decode()
         #print(s)
         return s
-    
+
     # Operation function
     def operation(self,val):#0=off, 1=on
         # print ("turn output on/off")
@@ -264,7 +266,7 @@ class CBic:
         # Read Charge Voltage
         commandhighbyte = 0x00
         commandlowbyte = 0x20
-        
+
         if rw==CBic.e_cmd_read:
             self.can_send_msg([commandlowbyte, commandhighbyte])
             return self.can_receive()
@@ -281,7 +283,7 @@ class CBic:
         # Read Charge Voltage
         commandhighbyte = 0x00
         commandlowbyte = 0x30
-        
+
         if rw==CBic.e_cmd_read:
             self.can_send_msg([commandlowbyte,commandhighbyte])
             return self.can_receive()
@@ -298,7 +300,7 @@ class CBic:
         # Read Charge Voltage
         commandhighbyte = 0x01
         commandlowbyte = 0x20
-        
+
         if rw==CBic.e_cmd_read:
             self.can_send_msg([commandlowbyte,commandhighbyte])
             return self.can_receive()
@@ -315,7 +317,7 @@ class CBic:
         # Read Charge Voltage
         commandhighbyte = 0x01
         commandlowbyte = 0x30
-        
+
         if rw==CBic.e_cmd_read:
             self.can_send_msg([commandlowbyte,commandhighbyte])
             return self.can_receive()
@@ -325,7 +327,7 @@ class CBic:
             v=val
             self.can_send_msg([commandlowbyte,commandhighbyte,vallowbyte,valhighbyte])
             return int(v)
-  
+
 
     def vread(self):
         # print ("read dc voltage")
@@ -345,24 +347,24 @@ class CBic:
         commandhighbyte = 0x00
         commandlowbyte = 0x61
 
-        self.can_send_msg([commandlowbyte,commandhighbyte])    
+        self.can_send_msg([commandlowbyte,commandhighbyte])
 
         msgr_split = self.can_rcv_raw()
         if msgr_split is None:
             return None
-        
+
         hexval = (msgr_split[11]+ msgr_split[10])
 
-        # quick and primitive solution to determine the 
+        # quick and primitive solution to determine the
         # negative charging current when discharging the battery
-        
+
         cval = (int(hexval,16))
         if cval > 20000 :
             cval = cval - 65536
-        
-        print (cval)
+
+        #print (cval)
         return cval
-   
+
 
     def acvread(self):
         # print ("read ac voltage")
@@ -372,23 +374,23 @@ class CBic:
         commandhighbyte = 0x00
         commandlowbyte = 0x50
 
-        self.can_send_msg([commandlowbyte,commandhighbyte])    
+        self.can_send_msg([commandlowbyte,commandhighbyte])
         return self.can_receive()
 
 
     # sys config: check(and set) eeprom write flag
-    # battery-mode: check and set birirect-mode 
+    # battery-mode: check and set birirect-mode
     def init_mode(self):
-        
+
         self.can_send_msg([0x040,0x01]) # bidirectional battery mode config
         cfg_bm = self.can_receive()
-    
-        if cfg_bm is None or sys_cfg is None:
+
+        if cfg_bm is None:
             print("ERROR can't init mode")
             return None
 
         flag_bidirect = get_normalized_bit(int(cfg_bm), bit_index=0)
-        if flag_eeprom_write ==0:
+        if flag_bidirect ==0:
             print('ini_mode enable bidirect mode, need repowering !!!')
             #cfg_bm = cfg_bm | 0x01 # set bit 0
             set_bit(cfg_bm,0)
@@ -403,7 +405,7 @@ class CBic:
         if sys_cfg is None:
             print("ERROR ini_mode")
             return None
-        
+
         sys_cfg_h = int(sys_cfg) >> 8
         sys_cfg_l  = int(sys_cfg) & 0xFF
         flag_eeprom_write = get_normalized_bit(int(sys_cfg_h), bit_index=2)
@@ -414,15 +416,7 @@ class CBic:
             clear_bit(sys_cfg_h,1)
             self.can_send_msg([0xC2,0x00,sys_cfg_l,sys_cfg_h])
             time.sleep(1)
-            
-        flag_can_ctrl = get_normalized_bit(int(sys_cfg_l), bit_index=0)
-        if flag_eeprom_write ==0:
-            print('ini_mode enable can ctrl disabled -> enabled')
-            #sys_cfg_l = sys_cfg_l  | 0x01 # set bit 0
-            set_bit(sys_cfg_h,0)
-            self.can_send_msg([0xC2,0x00,sys_cfg_l,sys_cfg_h])
-            time.sleep(1)
-        
+
         if self.persist is False:
             print("init_mode done")
         return 0
@@ -459,7 +453,7 @@ class CBic:
         #first Read the current value
         self.can_send_msg([commandlowbyte, commandhighbyte])
         v = int(self.can_receive(),16)
-        
+
         if rw==CBic.e_cmd_write: #0=read, 1=write
             #modify Bit 7 of Lowbyte
             if val==0xFF: val=int(sys.argv[3])
@@ -491,7 +485,7 @@ class CBic:
         commandlowbyte = 0x83
         self.can_send_msg([commandlowbyte,commandhighbyte])
         s2 = self.can_receive_char()
-        
+
         if s1 is None or s2 is None:
             return None
 
@@ -499,15 +493,17 @@ class CBic:
         self.d_info['modelName'] = s
 
         # firmware version
-        
+
         self.can_send_msg([0x84,0x00])
         self.d_info['firmRev'] = int(self.can_receive()) # to bytes hexvalue mcu0 and mcu1
 
         self.can_send_msg([0xC2,0x00])
         self.d_info['sysCfg'] = int(self.can_receive()) # to bytes hexvalue mcu0 and mcu1
 
-        print('dev-info:' + str(self.d_info))
-        return s
+        if self.persist is False:
+            print('dev-info:' + str(self.d_info))
+
+        return self.d_info
 
     def typeread(self):
         # print ("read power supply type")
@@ -524,9 +520,9 @@ class CBic:
         commandlowbyte = 0x83
         self.can_send_msg([commandlowbyte,commandhighbyte])
         s2 = self.can_receive_char()
-        
+
         s=s1+s2
-        print(s)
+        #print(s)
         return s
 
     def tempread(self):
@@ -546,7 +542,7 @@ class CBic:
         # print ("Read System Status")
         # Command Code 0x00C1
         # Read System Status
-        
+
         commandhighbyte = 0x00
         commandlowbyte = 0xC1
 
@@ -559,48 +555,48 @@ class CBic:
         if silence is True:
             return self.fault_changed
 
-        # deconding 
+        # deconding
         s = get_normalized_bit(int(sval), bit_index=0)
         if s == 0:
             print ("Current Device is Slave")
         else:
             print ("Current Device is Master")
-        
+
         s = get_normalized_bit(int(sval), bit_index=1)
         if s == 0:
             print ("Secondary DD output Status TOO LOW")
         else:
-            print ("Secondary DD output Status NORMAL")     
-            
+            print ("Secondary DD output Status NORMAL")
+
         s = get_normalized_bit(int(sval), bit_index=2)
         if s == 0:
             print ("Primary PFC OFF oder abnormal")
         else:
-            print ("Primary PFC ON normally")  
-            
+            print ("Primary PFC ON normally")
+
         s = get_normalized_bit(int(sval), bit_index=3)
         if s == 0:
             print ("Active Dummy Load off / not_supported")
         else:
             print ("Active Dummy Load on")
-        
+
         s = get_normalized_bit(int(sval), bit_index=4)
         if s == 0:
             print ("Device in initialization status")
         else:
-            print ("NOT in initialization status")     
-            
+            print ("NOT in initialization status")
+
         s = get_normalized_bit(int(sval), bit_index=5)
-        self.fault_update('eeprom',1)
+        self.fault_update('eeprom',s)
         if s == 0:
             print ("EEPROM data access normal")
         else:
-            print ("EEPROM data access error") 
-        
+            print ("EEPROM data access error")
+
         return self.fault_changed
 
     """ update fault dir
-        @return True if fault-entry has changed 
+        @return True if fault-entry has changed
     """
     def fault_update(self,name,new_state):
         fault = self.d_fault[name]
@@ -613,13 +609,13 @@ class CBic:
             return self.fault_changed
         return False
 
-    """ Read System Fault Status 
+    """ Read System Fault Status
         Command Code 0x0040
         - set and count faults
         @retun true if something has changed
     """
     def faultread(self):
-        self.fault_changed = False  
+        self.fault_changed = False
         commandhighbyte = 0x00
         commandlowbyte = 0x40
 
@@ -636,7 +632,7 @@ class CBic:
 
         s = get_normalized_bit(int(sval), bit_index=1)
         self.fault_update('otp',s)
-        
+
         s = get_normalized_bit(int(sval), bit_index=2)
         self.fault_update('ovp',s)
 
@@ -648,51 +644,54 @@ class CBic:
 
         s = get_normalized_bit(int(sval), bit_index=5)
         self.fault_update('acRange',s)
-        
+
         s = get_normalized_bit(int(sval), bit_index=6)
         self.fault_update('dcOff',s)
 
         s = get_normalized_bit(int(sval), bit_index=7)
         self.fault_update('otpHi',s)
-    
-        s = get_normalized_bit(int(sval), bit_index=8)
+        s = get_normalized_bit(int(sval), bit_index=8) 
         self.fault_update('ovpHi',s)
-        
         if self.persist is False:
-            print("fault-state:" + str(self.d_fault))
+            for fault in self.d_fault.values():
+                print(str(fault))
 
         return self.fault_changed
 
 
 def command_line_argument(bic):
+
+    def pp(str_out : str):
+        print(str(str_out))
+
     if len (sys.argv) == 1:
         print ("")
         print ("Error: First command line argument missing.")
         bic22_commands()
         error = 1
         return
-    
+
     bic.persist = False
 
     if   sys.argv[1] in ['on']:        bic.operation(1)
     elif sys.argv[1] in ['off']:       bic.operation(0)
-    elif sys.argv[1] in ['outputread']:bic.operation_read()
-    elif sys.argv[1] in ['cvread']:    bic.charge_voltage(CBic.e_cmd_read,None)
+    elif sys.argv[1] in ['outputread']:pp(bic.operation_read())
+    elif sys.argv[1] in ['cvread']:    pp(bic.charge_voltage(CBic.e_cmd_read,None))
     elif sys.argv[1] in ['cvset']:     bic.charge_voltage(CBic.e_cmd_write,sys.argv[2])
-    elif sys.argv[1] in ['ccread']:    bic.charge_current(CBic.e_cmd_read)
+    elif sys.argv[1] in ['ccread']:    pp(bic.charge_current(CBic.e_cmd_read))
     elif sys.argv[1] in ['ccset']:     bic.charge_current(CBic.e_cmd_write,sys.argv[2])
-    elif sys.argv[1] in ['dvread']:    bic.discharge_voltage(CBic.e_cmd_read)
+    elif sys.argv[1] in ['dvread']:    pp(bic.discharge_voltage(CBic.e_cmd_read))
     elif sys.argv[1] in ['dvset']:     bic.discharge_voltage(CBic.e_cmd_write,sys.argv[2])
-    elif sys.argv[1] in ['dcread']:    bic.discharge_current(CBic.e_cmd_read)
+    elif sys.argv[1] in ['dcread']:    pp(bic.discharge_current(CBic.e_cmd_read))
     elif sys.argv[1] in ['dcset']:     bic.discharge_current(CBic.e_cmd_write,sys.argv[2])
-    elif sys.argv[1] in ['vread']:     bic.vread()
-    elif sys.argv[1] in ['cread']:     bic.cread()
-    elif sys.argv[1] in ['acvread']:   bic.acvread()
+    elif sys.argv[1] in ['vread']:     pp(bic.vread())
+    elif sys.argv[1] in ['cread']:     pp(bic.cread())
+    elif sys.argv[1] in ['acvread']:   pp(bic.acvread())
     elif sys.argv[1] in ['charge']:    bic.BIC_chargemode(CBic.e_charge_mode_charge)
     elif sys.argv[1] in ['discharge']: bic.BIC_chargemode(CBic.e_charge_mode_discharge)
-    elif sys.argv[1] in ['dirread']:   bic.BIC_chargemode_read()
-    elif sys.argv[1] in ['tempread']:  bic.tempread()
-    elif sys.argv[1] in ['typeread']:  bic.typeread()
+    elif sys.argv[1] in ['dirread']:   pp(bic.BIC_chargemode_read())
+    elif sys.argv[1] in ['tempread']:  pp(bic.tempread())
+    elif sys.argv[1] in ['typeread']:  pp(bic.typeread())
     elif sys.argv[1] in ['dump']:      bic.dump()
     elif sys.argv[1] in ['statusread']:bic.statusread()
     elif sys.argv[1] in ['faultread']: bic.faultread()
@@ -707,13 +706,13 @@ def command_line_argument(bic):
         error = 1
         return
 
-#### Main 
+#### Main
 if __name__ == "__main__":
     if USE_RS232_CAN == 1:
-        if sys.argv[1] in ['can_up']: 
+        if sys.argv[1] in ['can_up']:
             CBic.can_up_serial()
             sys.exit(0)
-    
+
     bic = CBic()
     command_line_argument(bic)
 

@@ -173,6 +173,11 @@ class CBicDevBase():
 		self.cfg_tmo_charge_ms = 2000 #timeslice update state
 	
 
+	def stop(self):
+		pass # @todo stop operating mode, switch to off
+		self.bic.operation(0)
+		self.onl_mode = CBicDevBase.e_onl_mode_idle
+
 	# read from bic some common stuff
 	# 	@topic-pub <main-app>/inv/X/info
 	def	update_info(self):
@@ -410,6 +415,18 @@ class CBicCtrlBase():
 		self.bic_dev = bic_dev # device2 control
 		self.tmo_grid_sec = CBicCtrlBase.DEF_GRID_TMO # grid tmo timer
 
+	""" @todo
+	Charge Contol and regulator
+
+	ini file config parameter
+	@param dbkey-int [CHARGE_CONTROL]Id/X/Type def:"SIMPLE" if the type is undefined, the regulation is disabled"
+	@param dbkey-int [CHARGE_CONTROL]Id/X/NightCap def:30 store capacity for the night [%] 
+	@param dbkey-int [CHARGE_CONTROL]Id/X/NightStartTime def:18:00 start night mode at HH:MM, allow discharging NightCap 
+	@param dbkey-int [CHARGE_CONTROL]Id/X/GridPowerDischargeMin def: 50 Discharge min. power [W] 
+	@param dbkey-int [CHARGE_CONTROL]Id/X/GridPowerChargeMin  def:-40 Start Charging if the grid power is smaller than this value [W]
+	@param dbkey-int [CHARGE_CONTROL]Id/X/SwitchBlockTimeSec def:60 don't switch between charge and discharge until this interval [s]
+	@param dbkey-int [CHARGE_CONTROL]Id/X/TopicPower def:"" topic to subscribe power values from smart meter [W] <0:power to public-grid, >0 power-consumption from public.grid
+	""" 
 	def cfg(self,ini):
 		pass
 
@@ -451,7 +468,11 @@ class App:
 		self.con_time_min=0
 		self.dev_bic = {} # all bic hardware devices
 		self.bat = CBattery(0)
-	
+
+	def stop(self):
+		for dev in self.dev_bic.values():
+			dev.stop()
+
 	""" BIC Config
 		[DEVICE]
 		@param dbkey-str [MODEM]Id/X/Type def:empty well known modem type "BIC2200"
@@ -473,7 +494,7 @@ class App:
 				msg.cb_user_data = dev
 				mqttc.append_subscribe(msg)
 
-	""" @todo set charging parameter
+	""" set charging parameter
 		@topic-sub <main-app>/inv/X/charge/set {"var":[chargeA,chargeP],"val":[ampere or power]]}
 	"""
 	def cb_mqtt_sub_event(self,mqttc,user_data,mqtt_msg):
@@ -584,14 +605,16 @@ def main_init():
 	mqttc.set_lwt(MQTT_T_APP + '/sys/state','offline','running')
 	mqttc.on_disconnect = mqtt_on_disconnect
 	
-	
 	global app
 	app = App(mqttc)
 	app.cfg(ini)
 
 
 def main_exit():
-	# @todo save can shutdown
+	global app
+	if app is not None:
+		app.stop() 
+	# @todo save can shutdown ?
 	exit(0)
 
 if __name__ == "__main__":
