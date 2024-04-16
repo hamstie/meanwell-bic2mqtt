@@ -30,7 +30,7 @@ VER = "0.2.72"
 # steve 06.02.2024 Version 0.2.7
 #       - rename first variable statusread to outputread
 #       - statusread now fully functional
-# hamstie 15.04.2024 Version 0.2.72 class implementation of bic2200.py
+# hamstie 16.04.2024 Version 0.2.72 class implementation of bic2200.py
 #       - worked as a module
 #       + add exception for can read timeouts
 #       - removed some boilercode
@@ -126,6 +126,10 @@ def clear_bit(value, bit):
 def get_normalized_bit(value, bit_index):
     return (value >> bit_index) & 1
 
+def get_high_low_byte(val: int):
+    hb = int(val) >> 8
+    lb = int(val) & 0xff
+    return (hb,lb)
 
 #########################################
 # bic class
@@ -158,6 +162,7 @@ class CBic:
         self.d_fault['eeprom'] = {'active':0,'cnt':0,'desc':"eeprom fault"}
         self.d_fault['can'] =    {'active':-1,'cnt':0,'desc':"can-com error / read-tmo"} # -1 change on startup
 
+        self.write_cnt = 0 # write counter for persistent mode
         self.d_info = {} # modelName,firmRev....
 
         try:
@@ -260,7 +265,8 @@ class CBic:
         v = self.can_receive_byte()
         return v
 
-    def charge_voltage(self,rw,val=0): #0=read, 1=set
+    # charge voltage, max. volatge level of battery
+    def charge_voltage(self,rw,val=0):
         # print ("read/set charge voltage")
         # Command Code 0x0020
         # Read Charge Voltage
@@ -271,11 +277,14 @@ class CBic:
             self.can_send_msg([commandlowbyte, commandhighbyte])
             return self.can_receive()
         else:
-            valhighbyte = int(val) >> 8
-            vallowbyte  = int(val) & 0xFF
-            v=val
-            self.can_send_msg([commandlowbyte,commandhighbyte,vallowbyte,valhighbyte])
-            return int(v)
+            val=int(val)
+            hb, lb = get_high_low_byte(val)
+            self.can_send_msg([commandlowbyte,commandhighbyte,lb,hb])
+            self.e_cmd_write += 1
+            vr = int(self.charge_voltage(CBic.e_cmd_read))
+            if vr != val:
+                raise RuntimeError("cant set charge voltage:" + str(vr))
+            return vr
 
     def charge_current(self,rw,val=0): #0=read, 1=set
         # print ("read/set charge current")
@@ -288,12 +297,14 @@ class CBic:
             self.can_send_msg([commandlowbyte,commandhighbyte])
             return self.can_receive()
         else:
-            valhighbyte = int(val) >> 8
-            vallowbyte  = int(val) & 0xFF
+            val=int(val)
+            hb,lb = get_high_low_byte(val)
             v=val
-            self.can_send_msg([commandlowbyte,commandhighbyte,vallowbyte,valhighbyte])
-            return int(v)
+            self.can_send_msg([commandlowbyte,commandhighbyte,lb,hb])
+            self.e_cmd_write += 1
+            return v
 
+    # set the minimum volatage of the bat in discharge mode
     def discharge_voltage(self,rw,val=0): #0=read, 1=set
         # print ("read/set discharge voltage")
         # Command Code 0x0120
@@ -305,11 +316,14 @@ class CBic:
             self.can_send_msg([commandlowbyte,commandhighbyte])
             return self.can_receive()
         else:
-            valhighbyte = int(val) >> 8
-            vallowbyte  = int(val) & 0xFF
-            v=val
-            self.can_send_msg([commandlowbyte,commandhighbyte,vallowbyte,valhighbyte])
-            return int(v)
+            val=int(val)
+            hb,lb = get_high_low_byte(val)
+            vr = self.can_send_msg([commandlowbyte,commandhighbyte,lb,hb])
+            self.e_cmd_write += 1
+            vr = int(self.discharge_voltage(CBic.e_cmd_read))
+            if vr != val:
+                raise RuntimeError("cant set discharge voltage:" + str(vr))
+            return vr
 
     def discharge_current(self,rw,val=0): #0=read, 1=set
         # print ("read/set charge current")
@@ -326,6 +340,7 @@ class CBic:
             vallowbyte  = int(val) & 0xFF
             v=val
             self.can_send_msg([commandlowbyte,commandhighbyte,vallowbyte,valhighbyte])
+            self.e_cmd_write += 1
             return int(v)
 
 
@@ -479,7 +494,7 @@ class CBic:
 
             #send to device
             self.can_send_msg([commandlowbyte,commandhighbyte,vallowbyte,valhighbyte])
-
+            self.e_cmd_write += 1
             #check the current value
             self.can_send_msg([commandlowbyte,commandhighbyte])
             v = int(self.can_receive(),16)
@@ -514,6 +529,8 @@ class CBic:
 
         self.can_send_msg([0x86,0x00])
         self.d_info['manDate'] = self.can_receive_char() # manufac. date
+
+        self.d_info['cntWrite'] = self.write_cnt
 
         if self.persist is False:
             print('dev-info:' + str(self.d_info))

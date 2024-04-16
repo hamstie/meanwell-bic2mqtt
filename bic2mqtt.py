@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-APP_VER = "0.02"
+APP_VER = "0.04"
 APP_NAME = "bic2mqtt"
 
 """
- fst:05.04.2024 lst:08.04.2024
+ fst:05.04.2024 lst:16.04.2024
  Meanwell BIC2200-XXCAN to mqtt bridge
+ V0.04  vbic2200 first tests
  V0.01  mqtt is running
  V0.00  No fuction yet, working on the app-frame
 
@@ -22,7 +23,7 @@ import os.path
 import json
 import configparser
 
-#import sys
+import sys
 #import argparse
 #import os
 #import subprocess
@@ -57,6 +58,7 @@ class CIni:
 			ret = self.cfg.get(sec,key).strip('"')
 			ret = ret.strip(' ')
 			return ret
+		#print('nf:' + str(key) + str(self.cfg.options(sec)))
 		return def_val
 
 	def get_int(self,sec : str,key : str,def_val : int):
@@ -174,7 +176,7 @@ class CBicDevBase():
 	
 
 	def stop(self):
-		pass # @todo stop operating mode, switch to off
+		lg.waring("device stoped id:" + str(self.id))
 		self.bic.operation(0)
 		self.onl_mode = CBicDevBase.e_onl_mode_idle
 
@@ -211,6 +213,7 @@ class CBicDevBase():
 		
 		self.state['onlMode'] = CBicDevBase.s_onl_mode[self.onl_mode]
 
+		print(str(self.state))
 
 		if self.onl_mode > CBicDevBase.e_onl_mode_init:
 			volt = round(float(self.bic.vread()) / 100,2)
@@ -264,11 +267,13 @@ class CBicDevBase():
 		@param dbkey-int [DEVICE]Id/X/MaxDischargeCurrent def:2600 volt*100
 	"""
 	def cfg(self,ini):
-
+		lg.info('cfg id:' + str(self.id))
 		def kpfx():
 			return "Id/{}/".format(self.id)
+		
 		self.cfg_max_vcharge100 = ini.get_int('DEVICE',kpfx() + "ChargeVoltage",self.cfg_max_vcharge100)
 		self.cfg_min_vdischarge100 = ini.get_int('DEVICE',kpfx() + "DischargeVoltage",self.cfg_min_vdischarge100)
+		
 		self.cfg_max_ccharge100 = ini.get_int('DEVICE',kpfx() + "MaxChargeCurrent",self.cfg_max_ccharge100)
 		self.cfg_max_cdischarge100 = ini.get_int('DEVICE',kpfx() + "MaxDischargeCurrent",self.cfg_max_cdischarge100)
 		self.top_charge_set = MQTT_T_APP + '/inv/' + str(self.id) +  '/charge/set'
@@ -284,13 +289,19 @@ class CBicDevBase():
 		CBic.can_up(self.can_chan_id,self.can_bit_rate)
 		self.bic = CBic(self.can_chan_id,self.can_adr)
 		ret = self.bic.statusread()
+		str(self.bic.dump())
 		if ret is None:
 			self.onl_mode = CBicDevBase.e_onl_mode_offline
 		else:
+			lg.info('reached init:' + str(self))
 			self.onl_mode = CBicDevBase.e_onl_mode_init
-			
-		self.bic.operation(1)
+			# set the charge and discharge values of the battery
+			self.bic.charge_voltage(CBic.e_cmd_write,self.cfg_max_vcharge100)
+			self.bic.discharge_voltage(CBic.e_cmd_write,self.cfg_min_vdischarge100)
+			self.bic.operation(1)
+		
 		op_mode = self.bic.operation_read()
+		
 		if op_mode is None:
 			self.state['opMode'] = 0
 			self.state['onlMode'] = 0 # offline, read error
@@ -300,8 +311,8 @@ class CBicDevBase():
 				self.e_onl_mode = CBicDevBase.e_onl_mode_idle
 			else:
 				self.e_onl_mode = CBicDevBase.e_onl_mode_running
-		
-		lg.info('dev id:{} started'.format(self.id))
+				
+		lg.info('dev id:{} started op:{} onl:{}'.format(self.id,op_mode,self.e_onl_mode))
 
 
 	# poll values from bic/inverter
@@ -475,8 +486,8 @@ class App:
 
 	""" BIC Config
 		[DEVICE]
-		@param dbkey-str [MODEM]Id/X/Type def:empty well known modem type "BIC2200"
-		@param dbkey-int [MODEM]Id/X/CanBaudRate def:0 Baudrate
+		@param dbkey-str [DEVICE]Id/X/Type def:empty well known modem type "BIC2200"
+		@param dbkey-int [DEVICE]Id/X/CanBaudRate def:0 Baudrate
 		@topic-sub <main-app>/inv/X/charge/set {"var":[chargeA,chargeP],"val":[ampere or power]]}
 	"""
 	def cfg(self,ini):
@@ -592,7 +603,9 @@ def main_init():
 	logging.addLevelName( logging.ERROR, "\033[1;41m%s\033[1;0m" % logging.getLevelName(logging.ERROR))
 	lg = logging.getLogger()
 	lg.setLevel(tl)
-	
+
+	logging.getLogger('can').setLevel(logging.INFO)
+
 	global mqttc
 	mqttc = CMQTT(ini.get_str('MQTT','AppId',MQTT_APP_ID),None)
 	mqttc.app_user = ini.get_str('MQTT','BrokerAccUser',MQTT_USER)
@@ -611,6 +624,7 @@ def main_init():
 
 
 def main_exit():
+	exit(0)
 	global app
 	if app is not None:
 		app.stop() 
@@ -624,7 +638,7 @@ if __name__ == "__main__":
 			mqttc.connect(str(mqttc.app_ip_adr))
 		except:
 			logging.info("mqtt\tcan't connect to broker:" + MQTT_BROKER_ADR)        
-			exit (-1)
+			main_exit()
 
 
 	poll_time_slice_ms=20
@@ -634,6 +648,6 @@ if __name__ == "__main__":
 		try:
 			time.sleep(poll_time_slice_sec)
 		except KeyboardInterrupt:
-			main_exit(None,None)
+			main_exit()
 
 
