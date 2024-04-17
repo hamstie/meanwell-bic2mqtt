@@ -8,7 +8,7 @@ APP_NAME = "bic2mqtt"
  V0.04  vbic2200 first tests
  V0.01  mqtt is running
  V0.00  No fuction yet, working on the app-frame
-
+ - EEPROM Write is possible since datecode:2402.. 
 """
 
 import logging
@@ -134,13 +134,10 @@ class CBicDevBase():
 		self.bic = None
 		self.onl_mode = CBicDevBase.e_onl_mode_offline
 		self.system_voltage = 0 # needed for power calculation
-		self.top_charge_set = "" # topic to set a charge parameter  MQTT_T_APP + '/inv/' + str(self.id) +  '/charge/set'
-
+		self.top_inv = "" # MQTT_T_APP + '/inv/' + str(self.id)
+		
 		self.info = {}
-		self.info['id'] = int(self.id)
-		self.info['type'] = self.type
-		self.info['verSoft'] = ""
-		self.info['verHard'] = ""
+		self.info['id'] = int(self.id) # append some info from bic dump
 
 		self.state = {}
 		self.state['onlMode'] = CBicDevBase.s_onl_mode[self.onl_mode]
@@ -176,17 +173,17 @@ class CBicDevBase():
 	
 
 	def stop(self):
-		lg.waring("device stoped id:" + str(self.id))
+		lg.warning("device stoped id:" + str(self.id))
 		self.bic.operation(0)
-		self.onl_mode = CBicDevBase.e_onl_mode_idle
+		self.onl_mode = CBicDevBase.e_onl_mode_offline
+		self.update_state()
 
 	# read from bic some common stuff
-	# 	@topic-pub <main-app>/inv/X/info
+	# 	@topic-pub <main-app>/inv/<id>/info
 	def	update_info(self):
-		self.info['id'] = int(self.id)
-		self.info['type'] = self.type
-		self.info['verSoft'] = ""
-		self.info['verHard'] = ""
+		dinf=self.bic.dump()
+		self.info.update(dinf)
+		lg.info(str(self.info))
 		
 		jpl = json.dumps(self.info, sort_keys=False, indent=4)
 		global mqttc
@@ -194,15 +191,15 @@ class CBicDevBase():
 
 
 	# read from bic the voltage and battery parameter 
- 	# 	@topic-pub <main-app>/inv/X/state
+ 	# @topic-pub <main-app>/inv/<id>/state
 	def update_state(self):
 		
 		temp_c= self.bic.tempread()
 		if temp_c is not None:
-			self.state['tempC'] = int(temp_c)
+			self.state['tempC'] = int(temp_c / 10)
 		else:
 			self.state['tempC'] = -278
-
+		
 		op_mode = self.bic.operation_read()
 		if op_mode is None:
 			self.state['opMode'] = 0
@@ -218,7 +215,7 @@ class CBicDevBase():
 		if self.onl_mode > CBicDevBase.e_onl_mode_init:
 			volt = round(float(self.bic.vread()) / 100,2)
 			amp = round(float(self.bic.cread()) / 100,2)
-			ac_grid = round(float(self.bic.acvread()) / 100,0)
+			ac_grid = round(float(self.bic.acvread()) / 10,0)
 	
 			self.state['acGridV'] = ac_grid	# grid-volatge [V]
 			self.state['dcBatV'] = volt 	# bat voltage DV [V]
@@ -233,7 +230,7 @@ class CBicDevBase():
 
 
 	"""	read from bic the charging/discharging parameter 
- 		@topic-pub <main-app>/inv/X/charge
+ 		@topic-pub <main-app>/inv/<id>/charge
 	"""
 	def update_charge(self):
 		if self.onl_mode > CBicDevBase.e_onl_mode_init:
@@ -265,6 +262,7 @@ class CBicDevBase():
 		@param dbkey-int [DEVICE]Id/X/DischargeVoltage def:2520 volt*100
 		@param dbkey-int [DEVICE]Id/X/MaxChargeCurrent def:3500 volt*100
 		@param dbkey-int [DEVICE]Id/X/MaxDischargeCurrent def:2600 volt*100
+		@topic-sub <main-app>/inv/<id>/state/set [1,0] inverter operating mode @todo
 	"""
 	def cfg(self,ini):
 		lg.info('cfg id:' + str(self.id))
@@ -276,7 +274,9 @@ class CBicDevBase():
 		
 		self.cfg_max_ccharge100 = ini.get_int('DEVICE',kpfx() + "MaxChargeCurrent",self.cfg_max_ccharge100)
 		self.cfg_max_cdischarge100 = ini.get_int('DEVICE',kpfx() + "MaxDischargeCurrent",self.cfg_max_cdischarge100)
-		self.top_charge_set = MQTT_T_APP + '/inv/' + str(self.id) +  '/charge/set'
+		self.top_inv = MQTT_T_APP + '/inv/' + str(self.id)
+		
+
 
 		lg.info("init " + str(self))
 		#dischargedelay = int(config.get('Settings', 'DischargeDelay'))
@@ -289,7 +289,7 @@ class CBicDevBase():
 		CBic.can_up(self.can_chan_id,self.can_bit_rate)
 		self.bic = CBic(self.can_chan_id,self.can_adr)
 		ret = self.bic.statusread()
-		str(self.bic.dump())
+		self.update_info()
 		if ret is None:
 			self.onl_mode = CBicDevBase.e_onl_mode_offline
 		else:
@@ -308,23 +308,30 @@ class CBicDevBase():
 		else:
 			self.state['opMode'] = op_mode
 			if op_mode ==0:
-				self.e_onl_mode = CBicDevBase.e_onl_mode_idle
+				self.onl_mode = CBicDevBase.e_onl_mode_idle
 			else:
-				self.e_onl_mode = CBicDevBase.e_onl_mode_running
+				self.onl_mode = CBicDevBase.e_onl_mode_running
 				
-		lg.info('dev id:{} started op:{} onl:{}'.format(self.id,op_mode,self.e_onl_mode))
+		lg.info('dev id:{} started op:{} onl:{}'.format(self.id,op_mode,self.onl_mode))
+		#main_exit()
 
 
 	# poll values from bic/inverter
-	# @topic-pub <main-app>/inv/X/fault
+	# @topic-pub <main-app>/inv/<id>/fault
 	def poll(self,timeslive_ms):
 
-		if App.ts_6sec == 1:
+		def fault_check_update(force = False):
 			fault_update = self.bic.faultread()
-			if fault_update is True:
+			if fault_update is True or force == True:
 				jpl = json.dumps(self.bic.d_fault, sort_keys=False, indent=4)
 				global mqttc
 				mqttc.publish(MQTT_T_APP + '/inv/' + str(self.id) +  '/fault',jpl,0,True) # retained
+
+		if App.ts_1min == 1:
+			fault_check_update(True)
+
+		if App.ts_6sec == 1:
+			fault_check_update()
 		elif App.ts_6sec == 2:
 			pass
 
@@ -332,7 +339,7 @@ class CBicDevBase():
 			self.tmo_info_ms -= timeslive_ms
 		else:
 			self.tmo_info_ms = self.cfg_tmo_info_ms
-			self.update_info()
+			#self.update_info()
 
 		if self.tmo_state_ms >=0:
 			self.tmo_state_ms -= timeslive_ms
@@ -352,7 +359,7 @@ class CBicDevBase():
 	"""
 	def charge_set_amp(self,val_amp : int):
 		amp100 = 0 
-		if self.e_onl_mode >= CBicDevBase.e_onl_mode_idle:
+		if self.onl_mode >= CBicDevBase.e_onl_mode_idle:
 			
 			amp100 = int(val_amp * 100)
 			lg.info("set charge value to:{}A".format(val_amp / 100))
@@ -371,7 +378,7 @@ class CBicDevBase():
 		return -1
 
 	def charge_set_pow(self,val_pow):
-		amp = int(vap_pow / val_pow)
+		amp = int(24 / val_pow)
 		self.charge_set_amp(amp)
 
 
@@ -461,9 +468,6 @@ class CBicCtrlSimple(CBicCtrlBase):
 	def __init__(self,bic_dev : CBicDevBase):
 		super().__init__(bic_dev)
 
-
-
-
 class App:
 	ts_1000ms=0 # [ms]
 	ts_6sec=0   # [s]
@@ -488,7 +492,7 @@ class App:
 		[DEVICE]
 		@param dbkey-str [DEVICE]Id/X/Type def:empty well known modem type "BIC2200"
 		@param dbkey-int [DEVICE]Id/X/CanBaudRate def:0 Baudrate
-		@topic-sub <main-app>/inv/X/charge/set {"var":[chargeA,chargeP],"val":[ampere or power]]}
+		@topic-sub <main-app>/inv/<id>/charge/set {"var":[chargeA,chargeP],"val":[ampere or power]]}
 	"""
 	def cfg(self,ini):
 		# @future-use iterate over all bic's
@@ -500,18 +504,22 @@ class App:
 			dev.cfg(ini)
 			self.dev_bic[id] = dev
 			if len(self.dev_bic) >0:
-				msg = CMQTT.CMSG(dev.top_charge_set,"dummypl")
+				msg = CMQTT.CMSG(dev.top_inv + "/charge/set","dummypl")
+				msg.cb = self.cb_mqtt_sub_event
+				msg.cb_user_data = dev
+				mqttc.append_subscribe(msg)
+				msg = CMQTT.CMSG(dev.top_inv + "/state/set","dummypl")
 				msg.cb = self.cb_mqtt_sub_event
 				msg.cb_user_data = dev
 				mqttc.append_subscribe(msg)
 
 	""" set charging parameter
-		@topic-sub <main-app>/inv/X/charge/set {"var":[chargeA,chargeP],"val":[ampere or power]]}
+		@topic-sub <main-app>/inv/<id>/charge/set {"var":[chargeA,chargeP],"val":[ampere or power]]}
 	"""
 	def cb_mqtt_sub_event(self,mqttc,user_data,mqtt_msg):
 		print('on subsc:' + mqtt_msg.pp())
 		dev = user_data
-		if dev.top_charge_set == mqtt_msg.topic:
+		if dev.top_inv + "/charge/set" == mqtt_msg.topic:
 			try:
 				dpl = json.loads(mqtt_msg.payload)
 				if 'var' in dpl and 'val' in dpl:
@@ -521,6 +529,12 @@ class App:
 						dev.charge_set_pow(dpl['val'])
 			except:
 				pass
+		elif dev.top_inv + "/state/set" == mqtt_msg.topic:
+			if mqtt_msg.payload == '1':
+				self.bic.operation(1)	
+			else:
+				self.bic.operation(0)
+
 		
 
 
@@ -624,11 +638,13 @@ def main_init():
 
 
 def main_exit():
-	exit(0)
+	lg.warning("main exit reached")
+	mqttc.stop()
+	
 	global app
 	if app is not None:
 		app.stop() 
-	# @todo save can shutdown ?
+
 	exit(0)
 
 if __name__ == "__main__":
@@ -638,8 +654,6 @@ if __name__ == "__main__":
 			mqttc.connect(str(mqttc.app_ip_adr))
 		except:
 			logging.info("mqtt\tcan't connect to broker:" + MQTT_BROKER_ADR)        
-			main_exit()
-
 
 	poll_time_slice_ms=20
 	poll_time_slice_sec=poll_time_slice_ms/1000 # 20ms
