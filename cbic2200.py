@@ -11,7 +11,7 @@
 # - variables plausibility check
 # - programming missing functions
 # - current and voltage maximum settings
-VER = "0.2.72"
+VER = "0.2.73"
 # steve 08.06.2023  Version 0.2.1
 # steve 10.06.2023  Version 0.2.2
 # macGH 15.06.2023  Version 0.2.3
@@ -37,6 +37,8 @@ VER = "0.2.72"
 #       - return list of fault-bits for sttus processing
 #       + dump()
 #       - init_mode try to disable parameter eeprom write mode
+# hamstie 17.04.2024 Version 0.2.73
+#       + can_send_receive word(), skip useless eeprom writes and check the value with write read sequence
 
 import os
 import can
@@ -201,6 +203,34 @@ class CBic:
             print("CAN send error")
             raise RuntimeError("can't send can message")
 
+    """
+    read a word if it is equal to val, do nothing (force is False)
+    - send the value and read the returned value
+    - raise exception if given and received value are not equal
+    """
+    def can_send_receive_word(self,cmd :int,val:int,force=False):
+        cmd_hb,cmd_lb = get_high_low_byte(cmd)
+        val_hb,val_lb = get_high_low_byte(val)
+
+        # check running value
+        if force is False:
+            self.can_send_msg([cmd_lb,cmd_hb])
+            vr=self.can_receive()
+            if vr == val:
+                return True
+
+        # set new value
+        self.can_send_msg([cmd_lb,cmd_hb,val_lb,val_hb])
+        self.write_cnt +=1
+
+        # check if value was set
+        self.can_send_msg([cmd_lb,cmd_hb])
+        vr=self.can_receive()
+        
+        if vr != val:
+            raise RuntimeError("cant set value command:{} val:{}".format(hex(cmd),val))
+        
+        return True
 
     #@return list of values
     def can_rcv_raw(self, tmo=0.5):
@@ -288,7 +318,7 @@ class CBic:
 
     def charge_current(self,rw,val=0): #0=read, 1=set
         # print ("read/set charge current")
-        # Command Code 0x0030
+        # Command Code 0x0030 IOUT_SET EEPROM write !!!
         # Read Charge Voltage
         commandhighbyte = 0x00
         commandlowbyte = 0x30
@@ -304,10 +334,12 @@ class CBic:
             self.e_cmd_write += 1
             return v
 
+   
+            
     # set the minimum volatage of the bat in discharge mode
     def discharge_voltage(self,rw,val=0): #0=read, 1=set
         # print ("read/set discharge voltage")
-        # Command Code 0x0120
+        # Command Code 0x0120 REVERSE_VOUT_SET EPPROM write !!!
         # Read Charge Voltage
         commandhighbyte = 0x01
         commandlowbyte = 0x20
@@ -327,7 +359,7 @@ class CBic:
 
     def discharge_current(self,rw,val=0): #0=read, 1=set
         # print ("read/set charge current")
-        # Command Code 0x0130
+        # Command Code 0x0130 REVERSE_VOUT_SET EEPROM set !!
         # Read Charge Voltage
         commandhighbyte = 0x01
         commandlowbyte = 0x30
