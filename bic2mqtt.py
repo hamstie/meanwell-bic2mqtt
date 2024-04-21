@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-APP_VER = "0.04"
+APP_VER = "0.05"
 APP_NAME = "bic2mqtt"
 
 """
- fst:05.04.2024 lst:16.04.2024
+ fst:05.04.2024 lst:21.04.2024
  Meanwell BIC2200-XXCAN to mqtt bridge
- V0.04  vbic2200 first tests
+ V0.05  +subscribe operation mode
+ V0.04  cbic2200 first tests
  V0.01  mqtt is running
  V0.00  No fuction yet, working on the app-frame
  - EEPROM Write is possible since datecode:2402.. 
@@ -234,6 +235,7 @@ class CBicDevBase():
 	"""
 	def update_charge(self):
 		if self.onl_mode > CBicDevBase.e_onl_mode_init:
+			
 			volt = round(float(self.bic.vread()) / 100,2)
 			amp = round(float(self.bic.cread()) / 100,2)
 			self.state['dcBatV'] = volt 	# bat voltage DV [V]
@@ -252,9 +254,11 @@ class CBicDevBase():
 			self.charge['chargeP'] = 0
 			self.charge['chargeSetA'] = 0  
 
-		jpl = json.dumps(self.state, sort_keys=False, indent=4)
+		jpl = json.dumps(self.charge, sort_keys=False, indent=4)
 		global mqttc
-		mqttc.publish(MQTT_T_APP + '/inv/' + str(self.id) +  '/charge',jpl,0,False) # not retained
+		#print('uc' + str(jpl))
+		topic = MQTT_T_APP + '/inv/' + str(self.id) +  '/charge'
+		mqttc.publish(topic,jpl,0,False) # not retained
 
 
 	""" ini file config parameter
@@ -272,8 +276,8 @@ class CBicDevBase():
 		self.cfg_max_vcharge100 = ini.get_int('DEVICE',kpfx() + "ChargeVoltage",self.cfg_max_vcharge100)
 		self.cfg_min_vdischarge100 = ini.get_int('DEVICE',kpfx() + "DischargeVoltage",self.cfg_min_vdischarge100)
 		
-		self.cfg_max_ccharge100 = ini.get_int('DEVICE',kpfx() + "MaxChargeCurrent",self.cfg_max_ccharge100)
-		self.cfg_max_cdischarge100 = ini.get_int('DEVICE',kpfx() + "MaxDischargeCurrent",self.cfg_max_cdischarge100)
+		#self.cfg_max_ccharge100 = ini.get_int('DEVICE',kpfx() + "MaxChargeCurrent",self.cfg_max_ccharge100)
+		#self.cfg_max_cdischarge100 = ini.get_int('DEVICE',kpfx() + "MaxDischargeCurrent",self.cfg_max_cdischarge100)
 		self.top_inv = MQTT_T_APP + '/inv/' + str(self.id)
 		
 
@@ -362,23 +366,27 @@ class CBicDevBase():
 		if self.onl_mode >= CBicDevBase.e_onl_mode_idle:
 			
 			amp100 = int(val_amp * 100)
-			lg.info("set charge value to:{}A".format(val_amp / 100))
-			if amp100 >0:
+			lg.info("set charge value to:{}A".format(val_amp))
+			if amp100 >=0:
 				if amp100 > self.cfg_max_ccharge100:
 					amp100 = self.cfg_max_ccharge100
+					lg.warning("max charge reached set charge value to:{}A".format(amp100 / 100))
 				self.bic.BIC_chargemode(CBic.e_charge_mode_charge)
 				self.bic.charge_current(CBic.e_cmd_write,amp100)
 			elif amp100 < 0:
+				amp100 = abs(amp100)
 				if amp100 > self.cfg_max_cdischarge100:
 					amp100 = self.cfg_max_cdischarge100
-				self.bic.BIC_dischargemode(CBic.e_charge_mode_discharge)
+					lg.warning("max discharge reached set discharge value to:{}A".format(-amp100 / 100))
+				self.bic.BIC_chargemode(CBic.e_charge_mode_discharge)	
 				self.bic.discharge_current(CBic.e_cmd_write,amp100)
 			
 		raise RuntimeError("invalid charge cmd val:" + val_amp)
 		return -1
 
-	def charge_set_pow(self,val_pow):
-		amp = int(24 / val_pow)
+	def charge_set_pow(self,val_pow:int):
+		amp = round(int(val_pow) / 24)
+		#print('calcP:' + str(val_pow) + ' amp:' + str(amp))
 		self.charge_set_amp(amp)
 
 
@@ -393,8 +401,8 @@ class CBicDev2200_24(CBicDevBase):
 		self.system_voltage = 24 # needed for power calculation
 		self.cfg_vcharge100 = 2750
 		self.cfg_vdischarge100 = 2520
-		self.cfg_max_charge100 = 3500
-		self.cfg_max_cdischarge100 = 2600
+		self.cfg_max_charge100 = 1000  # 10[A]
+		self.cfg_max_cdischarge100 = 1500 # 15[A]
 
 
 	# special config
@@ -514,7 +522,7 @@ class App:
 				mqttc.append_subscribe(msg)
 
 	""" set charging parameter
-		@topic-sub <main-app>/inv/<id>/charge/set {"var":[chargeA,chargeP],"val":[ampere or power]]}
+		@topic-sub <main-app>/inv/<id>/charge/set {"var":[chargeA,chargeP],"val":[ampere or power]}
 	"""
 	def cb_mqtt_sub_event(self,mqttc,user_data,mqtt_msg):
 		print('on subsc:' + mqtt_msg.pp())
@@ -531,11 +539,9 @@ class App:
 				pass
 		elif dev.top_inv + "/state/set" == mqtt_msg.topic:
 			if mqtt_msg.payload == '1':
-				self.bic.operation(1)	
+				dev.bic.operation(1)	
 			else:
-				self.bic.operation(0)
-
-		
+				dev.bic.operation(0)
 
 
 	def start(self):
