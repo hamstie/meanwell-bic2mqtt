@@ -468,7 +468,7 @@ class CBic:
         if flag_bidirect ==0:
             print('ini_mode enable bidirect mode, need repowering !!!')
             #cfg_bm = cfg_bm | 0x01 # set bit 0
-            cfg_bm = set_bit(cfg_bm,1)
+            cfg_bm = set_bit(cfg_bm,0)
             cfg_bm_h = int(cfg_bm) >> 8
             cfg_bm_l  = int(cfg_bm) & 0xFF
             self.can_send_msg([0x40,0x01,cfg_bm_l,cfg_bm_h])
@@ -559,6 +559,9 @@ class CBic:
         self.can_send_msg([0xC2,0x00])
         self.d_info['sysCfg'] = hex(self.can_receive()) # to bytes hexvalue mcu0 and mcu1
 
+        self.can_send_msg([0x40,0x01])
+        self.d_info['sysCfgBDir'] = hex(self.can_receive()) # bdir config bit 1
+        
         self.can_send_msg([0x86,0x00])
         self.d_info['manDate'] = self.can_receive_char() # manufac. date
 
