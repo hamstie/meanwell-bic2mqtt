@@ -60,13 +60,17 @@ What is missing:
        <value> = amps oder volts * 100 --> 25,66V = 2566 
 
 
-# Configuration file
+# Configuration file **Under Construction !!!** 
 
-**Under Construction !!!** 
+Configuration File: bic2mqtt.ini
 
-## SEction [ALL]
 
-- todo
+## Section [ALL]
+
+|key                         | default value           | description                 |
+|----------------------------|-------------------------|---------------------------- |
+| TraceLevel                 | def:info                | possible levels: debug,info |
+| TraceFilePath              | def:""                  | trace/log to file
 
 ## Section [MQTT]
 
@@ -88,11 +92,17 @@ What is missing:
 |MaxDischargeCurrent         | def:2600 volt*100       |               |
 
 
+## Section [BAT_0]
+
+ - under construction
+
 ## Section [CHARGE_CONTROL]
 
+To control charging and discharging with this app. 
 
 |key                         | default value           | description   |
 |----------------------------|-------------------------|-------------- |
+|Id/XEnable                  | def:1                   | >0 local charge control is enabled |
 |Id/X/TopicPower             | ""                      | subscribe topic for grid power values from the smart meter  <0:power to public-grid, >0 power-consumption from public.grid|
 
 

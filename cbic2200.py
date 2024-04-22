@@ -37,7 +37,7 @@ VER = "0.2.73"
 #       - return list of fault-bits for sttus processing
 #       + dump()
 #       - init_mode try to disable parameter eeprom write mode
-# hamstie 17.04.2024 Version 0.2.73
+# hamstie 22.04.2024 Version 0.2.73
 #       + can_send_receive word(), skip useless eeprom writes and check the value with write read sequence
 
 import os
@@ -145,6 +145,18 @@ class CBic:
     e_state_off = 0
     e_state_on  = 1
 
+    # used CAN commands:
+    e_cmd_OPERATION =           0x0000 # operation on/off
+    e_cmd_VOUT_SET =            0x0020 # @notice: eeprom write vout set
+    e_cmd_IOUT_SET =            0x0030 # @notice: eeprom write eeprom write
+    e_cmd_FAULT_STATUS =        0x0040 # fault status register
+    e_cmd_READ_VIN =            0x0050 # AC voltage reading value
+    e_cmd_READ_VOUT =           0x0060 # DC voltage reading value
+    e_cmd_READ_IOUT =           0x0061 # DC current reading value  
+    e_cmd_REVERSE_VOUT_SET =    0x0120 # @notice: eeprom write
+    e_cmd_REVERSE_IOUT_SET =    0x0130 # @notice: eeprom write
+    # ....
+
     def __init__(self,can_chan_id='can0' ,can_adr=CAN_ADR):
         self.can_chan = None
         self.can_chan_id = can_chan_id
@@ -177,6 +189,7 @@ class CBic:
     # init can device
     @staticmethod
     def can_up(can_chan_id = 'can0',bit_rate = 250000):
+        print('can up:{} bit-rate{}:'.format(can_chan_id,bit_rate))
         os.system('sudo ip link set {} up type can bitrate {}'.format(can_chan_id,bit_rate))
         os.system('sudo ifconfig {} txqueuelen 65536'.format(can_chan_id))
 
@@ -209,6 +222,13 @@ class CBic:
     - raise exception if given and received value are not equal
     """
     def can_send_receive_word(self,cmd :int,val:int,force=False):
+    
+        def eeprom_write_check(cmd):
+            if cmd == CBic.e_cmd_VOUT_SET or cmd == CBic.e_cmd_IOUT_SET: 
+                self.write_cnt+=1
+            elif cmd == CBic.e_cmd_REVERSE_VOUT_SET or cmd == CBic.e_cmd_REVERSE_IOUT_SET:
+                self.write_cnt+=1
+
         cmd_hb,cmd_lb = get_high_low_byte(cmd)
         val_hb,val_lb = get_high_low_byte(val)
 
@@ -221,7 +241,7 @@ class CBic:
 
         # set new value
         self.can_send_msg([cmd_lb,cmd_hb,val_lb,val_hb])
-        self.write_cnt +=1
+        eeprom_write_check(cmd)
 
         # check if value was set
         self.can_send_msg([cmd_lb,cmd_hb])
@@ -359,7 +379,7 @@ class CBic:
 
     def discharge_current(self,rw,val=0): #0=read, 1=set
         # print ("read/set charge current")
-        # Command Code 0x0130 REVERSE_VOUT_SET EEPROM set !!
+        # Command Code 0x0130 REVERSE_IOUT_SET EEPROM set !!
         # Read Charge Voltage
         commandhighbyte = 0x01
         commandlowbyte = 0x30

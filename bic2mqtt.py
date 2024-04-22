@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
-APP_VER = "0.06"
+APP_VER = "0.10"
 APP_NAME = "bic2mqtt"
 
 """
  fst:05.04.2024 lst:21.04.2024
  Meanwell BIC2200-XXCAN to mqtt bridge
- V0.05  +subscribe operation mode
+ V0.10  charge and discharging is possible BIC2200-24-CAN
  V0.04  cbic2200 first tests
  V0.01  mqtt is running
  V0.00  No fuction yet, working on the app-frame
+
+ 
  - EEPROM Write is possible since datecode:2402.. 
 """
 
@@ -441,7 +443,7 @@ class CChargeCtrlBase():
 	DEF_GRID_TMO_SEC = 18 # seconds to switch off bic-dev if we get no new gid-power values
 
 	def __init__(self,bic_dev : CBicDevBase):
-		self.enabled = False
+		self.enabled = False # enabled
 		self.bic_dev = bic_dev # device2 control
 		self.id = bic_dev.id 
 		self.tmo_grid_sec = CChargeCtrlBase.DEF_GRID_TMO_SEC # grid tmo timer
@@ -449,18 +451,21 @@ class CChargeCtrlBase():
 		self.ts_1000ms=0 # timeslice 1000ms [ms]
 		self.ts_6sec=0 # timeslive 6sec [s]
 		self.ts_1min=0 # timeslive 1min [s]
+		self.new_grid_power_value = False # grid power received value arrived
 
 	""" @todo
 	Charge Contol and regulator
 
 	ini file config parameter
+	@param dbkey-str [CHARGE_CONTROL]Id/X/TopicPower def:"" topic to subscribe power values from smart meter [W] <0:power to public-grid, >0 power-consumption from public.grid
+	@param dbkey-int [CHARGE_CONTROL]Id/X/Enabled def:1 if it is defined  in ini -> enabled
+	# not used
 	@param dbkey-int [CHARGE_CONTROL]Id/X/Type def:"SIMPLE" if the type is undefined, the regulation is disabled"
-	@param dbkey-int [CHARGE_CONTROL]Id/X/NightCap def:30 store capacity for the night [%] 
+	@param dbkey-int [CHARGE_CONTROL]Id/X/NightCap def:30 store capacity for the night [%]
 	@param dbkey-int [CHARGE_CONTROL]Id/X/NightStartTime def:18:00 start night mode at HH:MM, allow discharging NightCap 
 	@param dbkey-int [CHARGE_CONTROL]Id/X/GridPowerDischargeMin def: 50 Discharge min. power [W] 
 	@param dbkey-int [CHARGE_CONTROL]Id/X/GridPowerChargeMin  def:-40 Start Charging if the grid power is smaller than this value [W]
-	@param dbkey-int [CHARGE_CONTROL]Id/X/SwitchBlockTimeSec def:60 don't switch between charge and discharge until this interval [s]
-	@param dbkey-str [CHARGE_CONTROL]Id/X/TopicPower def:"" topic to subscribe power values from smart meter [W] <0:power to public-grid, >0 power-consumption from public.grid
+	
 	""" 
 	def cfg(self,ini):
 		def kpfx(str_tail : str):
@@ -473,6 +478,9 @@ class CChargeCtrlBase():
 		global mqttc
 		mqttc.append_subscribe(msg)
 		lg.info('CC grid power topic:' + str(top_pow))
+		_enabled = ini.get_int('CHARGE_CONTROL',kpfx('Enabled'),0)
+		if _enabled >0:
+			self.enabled = True
 		return
 		
 
@@ -505,7 +513,8 @@ class CChargeCtrlBase():
 			self.grid_pow = int(mqtt_msg.payload)
 			self.tmo_grid_sec = CChargeCtrlBase.DEF_GRID_TMO_SEC
 			self.on_cb_grid_power(self.grid_pow)
-			self.enabled = True
+			if self.enabled is True:
+				self.new_grid_power_value = True
 		except ValueError:
 			pass	
 
@@ -529,19 +538,37 @@ BIC control and regulation class
 """
 class CChargeCtrlSimple(CChargeCtrlBase):
 	
+	DEF_BLOCK_TIME_DISCHARGE = 60
+
 	def __init__(self,bic_dev : CBicDevBase):
 		super().__init__(bic_dev)
 		self.avg_pow = CMAvg(3600*1000) #average calculation , store values for on hour
-		self.pow_offset = 40 # [W] offset power for the calculation
+		self.charge_pow_offset = 0 # [W] offset power for the calculation, move the zero point of power balance
+		self.charge_pow_tol = 10 # [W] don't set new charge value if the running one is nearby 
+		self.discharge_block_tmo = 0 # [s]  # skip short discharge burst
+		self.discharge_block_tmo_cfg = CChargeCtrlSimple.DEF_BLOCK_TIME_DISCHARGE
 
+
+	""" Charge Control Simple:
+		@param dbkey-int [CHARGE_CONTROL]Id/X/DischargeBlockTimeSec def: 60[s] skip short discharge bursts
+		@param dbkey-int [CHARGE_CONTROL]Id/X/ChargePowerOffset def: 0[W] offset power for the calculation, move the zero point of power balance
+		@param dbkey-int [CHARGE_CONTROL]Id/X/ChargeTol def: 10[W] don't set new charge value if the running one is nearby 
+	"""
 	def cfg(self,ini):
 		super().cfg(ini)
-		pass
 
+		def kpfx(str_tail : str):
+			return "Id/{}/{}".format(self.id,str_tail)
+		
+		self.discharge_block_tmo_cfg = ini.get_str('CHARGE_CONTROL',kpfx('DischargeBlockTimeSec'),CChargeCtrlSimple.DEF_BLOCK_TIME_DISCHARGE)
+		self.charge_pow_offset = ini.get_str('CHARGE_CONTROL',kpfx('ChargePowerOffset'),self.charge_pow_offset)
+		self.charge_pow_tol = ini.get_str('CHARGE_CONTROL',kpfx('ChargeTol'),self.charge_pow_tol)
 
 	""" received a new value from the grid power sensor
 		power value: >0 receive power from the public-grid  
-		power value: <0 inject power to the public-grid 
+		power value: <0 inject power to the public-grid
+		usefull functions for the future:
+		- 
 	"""
 	def on_cb_grid_power(self,pow_val):
 		self.tmo_grid_sec = CChargeCtrlBase.DEF_GRID_TMO_SEC
@@ -550,13 +577,27 @@ class CChargeCtrlSimple(CChargeCtrlBase):
 		lg.info('CC val:{}[W] 1min:{}[W] 5min:{}[W] 1h:{}[W]'.format(pow_val,self.avg.avg_get(60*1000),self.avg.avg_get(5*60*1000),self.avg.avg_get(60*60*1000)))
 
 
+	""" simple charge discharge control:
+		- new charge value = grid-power * (-1)
+		- discharge block time, skip fast charge, discharge toggle
+	"""
 	def poll(self,timeslice_ms):
 		super().poll(timeslice_ms)
-		if self.ts_6sec == 1:
+		if self.ts_6sec == 5 and self.new_grid_power_value is True:
+			self.new_grid_power_value = False
 			dev_charge_now = self.charge['chargeP']
-			dev_charge_calc = self.avg.avg_get(60*1000) * (-1) - self.pow_offset
-			lg.info('cc set new value: dev:{}[W] calc:{}[W]'.format(dev_charge_now,dev_charge_calc))
-			if abs(dev_charge_now - dev_charge_calc + self.pow_offset) >10:
+			dev_charge_calc = self.avg.avg_get(60*1000) * (-1) + self.charge_pow_offset
+
+			# check and skip short discharge burst, use the grid power for the tee-kettle
+			if dev_charge_calc >0:
+				self.discharge_block_tmo = self.discharge_block_tmo_cfg
+			elif dev_charge_calc <0 and self.discharge_block_tmo >=0:
+				self.discharge_block_tmo -= 6
+				lg.info('cc discharge block time now:{}[W] calc:{}[W] tmo:{}[s]'.format(dev_charge_now,dev_charge_calc,self.discharge_block_tmo))
+				return 
+
+			lg.info('cc set new value: now:{}[W] calc:{}[W]'.format(dev_charge_now,dev_charge_calc))
+			if abs(dev_charge_now - dev_charge_calc - self.charge_pow_offset) > self.charge_pow_tol:
 				topic = self.top_inv + '/charge/set'
 				pl = '{"var":"chargeP", "val":{}}'.format(dev_charge_calc)
 				global mqttc
