@@ -82,35 +82,36 @@ class CIni:
 
 class CBattery():
 	def __init__(self,id):
-		self.d_Cap2V100 = {} # key: capacity in %  [0..100], value: voltage*100 
-		self.d_Cap2V100[0]=0
+		self.d_Cap2V = {} # key: capacity in %  [0..100], value: voltage*100 
+		self.d_Cap2V[0]=0
 
 	def check(self):
 		k_old = 0
 		v_old = 0 
-		for k,v in self.d_Cap2V100.items():
+		for k,v in self.d_Cap2V.items():
 			if k_old > k or v_old > v:
-				raise RuntimeError('wrong/mismatch bat table entry' + str(self.d_Cap2V100))
+				raise RuntimeError('wrong/mismatch bat table entry' + str(self.d_Cap2V))
 			#print('{}%={}'.format(k,v))
 		return 0
 
 	# bat profile from ini
-	# @param dbkey-int [BAT_0]Cap2V/X=V battery capacity [%] to volatage V*100
+	# @param dbkey-int [BAT_0]Cap2V/X=V battery capacity [%] to voltage
 	def cfg(self,ini):
 		d = ini.get_sec_keys('BAT_0')
 		for k,v in d.items():
 				if k.find('cap2v/')>=0:
 					cap_pc = int(k.replace('cap2v/',''))
-					self.d_Cap2V100[cap_pc] = float(v)
+					self.d_Cap2V[cap_pc] = float(v)
 		self.check()
 
 	# @return the capacity of the battery [%]
-	def get_capacity_pc(self,v100):
-		vret=0
-		for c, v in self.d_Cap2V100.items():
-			if v > v100:
-				return round(vret,2)
-		return round(vret,2)
+	def get_capacity_pc(self,volt):
+		cret = 0
+		for c, v in self.d_Cap2V.items():
+			if v > volt:
+				return cret # return the previous value
+			cret = c
+		return 0
 
 
 """
