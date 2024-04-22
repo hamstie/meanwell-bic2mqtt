@@ -179,7 +179,9 @@ class CBicDevBase():
 
 	def stop(self):
 		lg.warning("device stoped id:" + str(self.id))
-		self.bic.operation(0)
+		self.bic.charge_current(CBic.e_cmd_write,0)
+		self.bic.discharge_current(CBic.e_cmd_write,0)
+		#self.bic.operation(0)
 		self.onl_mode = CBicDevBase.e_onl_mode_offline
 		self.update_state()
 
@@ -306,6 +308,8 @@ class CBicDevBase():
 			# set the charge and discharge values of the battery
 			self.bic.charge_voltage(CBic.e_cmd_write,self.cfg_max_vcharge100)
 			self.bic.discharge_voltage(CBic.e_cmd_write,self.cfg_min_vdischarge100)
+			self.bic.charge_current(CBic.e_cmd_write,0)
+			self.bic.discharge_current(CBic.e_cmd_write,0)
 			self.bic.operation(1)
 		
 		op_mode = self.bic.operation_read()
