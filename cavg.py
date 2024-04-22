@@ -9,7 +9,7 @@ import math
 	- parameter:list length for the average 
 """
 class CMAvg():
-	VER=0.2
+	VER=0.3
 	
 	def __init__(self,max_time_ms,max_values=-1):
 		self.cfg_max_time_ms=max_time_ms # max. time [ms] to store, values -1: inifinite
@@ -87,10 +87,10 @@ class CMAvg():
 ms  123456789.  ts-step	       ts-srep
 	
 	"""
-	def avg_get(self,time_ms=0):
+	def avg_get(self,time_ms=0,round_digits=2):
 	
 		if len(self)==0:
-			return 0
+			return round(0,round_digits)
 		
 		sum = 0
 		ts_now = datetime.now()
@@ -107,8 +107,7 @@ ms  123456789.  ts-step	       ts-srep
 			t_sum_ms += step_ms
 			sum += self.lst_val[idx-1] * step_ms
 			#cnt += 1
-
-		return (sum / t_sum_ms)
+		return round(sum / t_sum_ms,round_digits)
 
 	# @return the min and max value
 	# if non value in list 0,0 will be returned

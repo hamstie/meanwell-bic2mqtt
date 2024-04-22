@@ -189,7 +189,7 @@ class CBic:
     # init can device
     @staticmethod
     def can_up(can_chan_id = 'can0',bit_rate = 250000):
-        print('can up:{} bit-rate{}:'.format(can_chan_id,bit_rate))
+        print('can up:{} bit-rate:{}'.format(can_chan_id,bit_rate))
         os.system('sudo ip link set {} up type can bitrate {}'.format(can_chan_id,bit_rate))
         os.system('sudo ifconfig {} txqueuelen 65536'.format(can_chan_id))
 
@@ -237,6 +237,7 @@ class CBic:
             self.can_send_msg([cmd_lb,cmd_hb])
             vr=self.can_receive()
             if vr == val:
+                #print("skip vr:{} val:{}".format(vr,val))   
                 return True
 
         # set new value
@@ -246,7 +247,7 @@ class CBic:
         # check if value was set
         self.can_send_msg([cmd_lb,cmd_hb])
         vr=self.can_receive()
-        
+        #print("vr:{} val:{}".format(vr,val))        
         if vr != val:
             raise RuntimeError("cant set value command:{} val:{}".format(hex(cmd),val))
         
@@ -330,7 +331,6 @@ class CBic:
             val=int(val)
             hb, lb = get_high_low_byte(val)
             self.can_send_msg([commandlowbyte,commandhighbyte,lb,hb])
-            self.e_cmd_write += 1
             vr = int(self.charge_voltage(CBic.e_cmd_read))
             if vr != val:
                 raise RuntimeError("cant set charge voltage:" + str(vr))
@@ -348,11 +348,13 @@ class CBic:
             return self.can_receive()
         else:
             val=int(val)
+            """
             hb,lb = get_high_low_byte(val)
             v=val
             self.can_send_msg([commandlowbyte,commandhighbyte,lb,hb])
-            self.e_cmd_write += 1
-            return v
+            """
+            self.can_send_receive_word(CBic.e_cmd_IOUT_SET,val)
+            return val
 
    
             
@@ -370,8 +372,7 @@ class CBic:
         else:
             val=int(val)
             hb,lb = get_high_low_byte(val)
-            vr = self.can_send_msg([commandlowbyte,commandhighbyte,lb,hb])
-            self.e_cmd_write += 1
+            self.can_send_msg([commandlowbyte,commandhighbyte,lb,hb])
             vr = int(self.discharge_voltage(CBic.e_cmd_read))
             if vr != val:
                 raise RuntimeError("cant set discharge voltage:" + str(vr))
@@ -388,12 +389,15 @@ class CBic:
             self.can_send_msg([commandlowbyte,commandhighbyte])
             return self.can_receive()
         else:
+            val = int(val)
+            self.can_send_receive_word(CBic.e_cmd_REVERSE_IOUT_SET,val)
+            """
             valhighbyte = int(val) >> 8
             vallowbyte  = int(val) & 0xFF
             v=val
             self.can_send_msg([commandlowbyte,commandhighbyte,vallowbyte,valhighbyte])
-            self.e_cmd_write += 1
-            return int(v)
+            """
+            return int(val)
 
 
     def vread(self):
