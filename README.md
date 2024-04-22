@@ -64,6 +64,20 @@ What is missing:
 
 **Under Construction !!!** 
 
+## SEction [ALL]
+
+- todo
+
+## Section [MQTT]
+
+|key                         | default value           | description             |
+|----------------------------|-------------------------|------------------------ |
+|BrokerIpAdr                 | def:"127.0.0.1"         | Broker IP-Address       |               
+|BrokerAccUser               | def:""                  | Broker Account User     |
+|BrokerAccUser               | def:""                  | Broker Account Password |
+|TopicMain                   | def: haus/power/bat     | main topic              |
+
+
 ## Section [Device] 
 
 |key                         | default value           | description   |
@@ -74,9 +88,17 @@ What is missing:
 |MaxDischargeCurrent         | def:2600 volt*100       |               |
 
 
+## Section [CHARGE_CONTROL]
+
+
+|key                         | default value           | description   |
+|----------------------------|-------------------------|-------------- |
+|Id/X/TopicPower             | ""                      | subscribe topic for grid power values from the smart meter  <0:power to public-grid, >0 power-consumption from public.grid|
+
+
 --------
 
-# MQTT Toppics
+# MQTT Topics
 
 - \<main-app> can be configured in ini-file
 
@@ -84,15 +106,15 @@ What is missing:
 
 |pub/sub   | topic                   | payload     | description   |
 |----------|-------------------------|-------------|-------------- |
-|pub | \<main-app>/inv<id>info        |             | json inverter hardware info, eg. version
-|pub | \<main-app>/inv<id>state       |             | json inverter states
-|sub | \<main-app>/inv<id>state/set   | [0,1]       | set inverter operating mode 1:on else off
-|pub | \<main-app>/inv<id>charge      |             | 
-|pub | \<main-app>/inv<id>fault       |             | json fault states of the inverter
-|sub | \<main-app>/inv<id>charge/set  | {"var":[chargeA,chargeP],"val":[ampere or power]} |
-|sub | \<main-app>/inv<id>charge/set  | {"var":[chargeA,chargeP],"val":[ampere or power]} |
-|pub | \<main-app>/sys/state/lwt     |  [offline,running] | mqtt last will
-
+|pub | "<main-app>/inv/<id>info      |             | json inverter hardware info, eg. version
+|pub | \<main-app>/inv/<id>state       |             | json inverter states
+|sub | \<main-app>/inv/<id>state/set   | [0,1]       | set inverter operating mode 1:on else off
+|pub | \<main-app>/inv/<id>charge      |             | 
+|pub | \<main-app>/inv/<id>fault       |             | json fault states of the inverter
+|sub | \<main-app>/inv/<id>charge/set  | {"var":[chargeA,chargeP],"val":[ampere or power]} |
+|sub | \<main-app>/inv/<id>charge/set  | {"var":[chargeA,chargeP],"val":[ampere or power]} |
+|pub | \<main-app>/sys/state/lwt       | [offline,running] | mqtt last will |
+|sub | ini file: [CHARGE_CONTROL]Id/X/TopicPower | value [W] | Charge control: incoming grid power values|
 
         
 # Examples        

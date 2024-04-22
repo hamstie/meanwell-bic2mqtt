@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-APP_VER = "0.05"
+APP_VER = "0.06"
 APP_NAME = "bic2mqtt"
 
 """
@@ -23,6 +23,7 @@ import time
 import os.path
 import json
 import configparser
+from cavg import CMAvg
 
 import sys
 #import argparse
@@ -136,7 +137,8 @@ class CBicDevBase():
 		self.onl_mode = CBicDevBase.e_onl_mode_offline
 		self.system_voltage = 0 # needed for power calculation
 		self.top_inv = "" # MQTT_T_APP + '/inv/' + str(self.id)
-		
+		self.cc = None	# charge control
+
 		self.info = {}
 		self.info['id'] = int(self.id) # append some info from bic dump
 
@@ -270,14 +272,14 @@ class CBicDevBase():
 	"""
 	def cfg(self,ini):
 		lg.info('cfg id:' + str(self.id))
-		def kpfx():
-			return "Id/{}/".format(self.id)
+		def kpfx(str_tail : str):
+			return "Id/{}/{}".format(self.id,str_tail)
 		
-		self.cfg_max_vcharge100 = ini.get_int('DEVICE',kpfx() + "ChargeVoltage",self.cfg_max_vcharge100)
-		self.cfg_min_vdischarge100 = ini.get_int('DEVICE',kpfx() + "DischargeVoltage",self.cfg_min_vdischarge100)
+		self.cfg_max_vcharge100 = ini.get_int('DEVICE',kpfx("ChargeVoltage"),self.cfg_max_vcharge100)
+		self.cfg_min_vdischarge100 = ini.get_int('DEVICE',kpfx("DischargeVoltage") ,self.cfg_min_vdischarge100)
 		
-		#self.cfg_max_ccharge100 = ini.get_int('DEVICE',kpfx() + "MaxChargeCurrent",self.cfg_max_ccharge100)
-		#self.cfg_max_cdischarge100 = ini.get_int('DEVICE',kpfx() + "MaxDischargeCurrent",self.cfg_max_cdischarge100)
+		#self.cfg_max_ccharge100 = ini.get_int('DEVICE',kpfx(MaxChargeCurrent),self.cfg_max_ccharge100)
+		#self.cfg_max_cdischarge100 = ini.get_int('DEVICE',kpfx(MaxDischargeCurrent),self.cfg_max_cdischarge100)
 		self.top_inv = MQTT_T_APP + '/inv/' + str(self.id)
 		
 
@@ -361,31 +363,32 @@ class CBicDevBase():
 		val >0 charging the bat
 		val <0 discharging the bat
 	"""
-	def charge_set_amp(self,val_amp : int):
+	def charge_set_amp(self,val_amp : float):
 		amp100 = 0 
 		if self.onl_mode >= CBicDevBase.e_onl_mode_idle:
+			try:
+				amp100 = int(val_amp * 100)
+				lg.info("set charge value to:{}A".format(val_amp))
+				if amp100 >=0:
+					if amp100 > self.cfg_max_ccharge100:
+						amp100 = self.cfg_max_ccharge100
+						lg.warning("max charge reached set charge value to:{}A".format(amp100 / 100))
+					self.bic.BIC_chargemode(CBic.e_charge_mode_charge)
+					self.bic.charge_current(CBic.e_cmd_write,amp100)
+				elif amp100 < 0:
+					amp100 = abs(amp100)
+					if amp100 > self.cfg_max_cdischarge100:
+						amp100 = self.cfg_max_cdischarge100
+						lg.warning("max discharge reached set discharge value to:{}A".format(-amp100 / 100))
+					self.bic.BIC_chargemode(CBic.e_charge_mode_discharge)	
+					self.bic.discharge_current(CBic.e_cmd_write,amp100)
+			except ValueError:
+				lg.error("can't set charge value:" + str(val_amp))
 			
-			amp100 = int(val_amp * 100)
-			lg.info("set charge value to:{}A".format(val_amp))
-			if amp100 >=0:
-				if amp100 > self.cfg_max_ccharge100:
-					amp100 = self.cfg_max_ccharge100
-					lg.warning("max charge reached set charge value to:{}A".format(amp100 / 100))
-				self.bic.BIC_chargemode(CBic.e_charge_mode_charge)
-				self.bic.charge_current(CBic.e_cmd_write,amp100)
-			elif amp100 < 0:
-				amp100 = abs(amp100)
-				if amp100 > self.cfg_max_cdischarge100:
-					amp100 = self.cfg_max_cdischarge100
-					lg.warning("max discharge reached set discharge value to:{}A".format(-amp100 / 100))
-				self.bic.BIC_chargemode(CBic.e_charge_mode_discharge)	
-				self.bic.discharge_current(CBic.e_cmd_write,amp100)
-			
-		raise RuntimeError("invalid charge cmd val:" + val_amp)
 		return -1
 
 	def charge_set_pow(self,val_pow:int):
-		amp = round(int(val_pow) / 24)
+		amp = int(val_pow) / 24
 		#print('calcP:' + str(val_pow) + ' amp:' + str(amp))
 		self.charge_set_amp(amp)
 
@@ -408,12 +411,12 @@ class CBicDev2200_24(CBicDevBase):
 	# special config
 	# @param dbkey-int [DEVICE]Id/X/CanBitrate def:250000
 	def cfg(self,ini):
-		def kpfx():
-			return "Id/{}/".format(self.id)
+		def kpfx(str_tail : str):
+			return "Id/{}/{}".format(self.id,str_tail)
 
 		super().cfg(ini)
 		if self.id >=0:
-			self.can_bit_rate = ini.get_int('DEVICE',kpfx() + "CanBitrate",250000)
+			self.can_bit_rate = ini.get_int('DEVICE',kpfx("CanBitrate"),250000)
 			#CBic.can_up(self.can_chan,self.can_bit_rate)
 			#self.bic = CBic(self.can_chan,self.can_adr)
 			return 0
@@ -433,13 +436,19 @@ class CBicDev2200_24(CBicDevBase):
 BIC control and regulation class 
 - control the bic charge and discharge function
 """
-class CBicCtrlBase():
+class CChargeCtrlBase():
 
-	DEF_GRID_TMO = 18 # seconds to switch off bic-dev if we get no new gid-power values
+	DEF_GRID_TMO_SEC = 18 # seconds to switch off bic-dev if we get no new gid-power values
 
 	def __init__(self,bic_dev : CBicDevBase):
+		self.enabled = False
 		self.bic_dev = bic_dev # device2 control
-		self.tmo_grid_sec = CBicCtrlBase.DEF_GRID_TMO # grid tmo timer
+		self.id = bic_dev.id 
+		self.tmo_grid_sec = CChargeCtrlBase.DEF_GRID_TMO_SEC # grid tmo timer
+		self.grid_pow = 0 # last grid power value
+		self.ts_1000ms=0 # timeslice 1000ms [ms]
+		self.ts_6sec=0 # timeslive 6sec [s]
+		self.ts_1min=0 # timeslive 1min [s]
 
 	""" @todo
 	Charge Contol and regulator
@@ -451,30 +460,111 @@ class CBicCtrlBase():
 	@param dbkey-int [CHARGE_CONTROL]Id/X/GridPowerDischargeMin def: 50 Discharge min. power [W] 
 	@param dbkey-int [CHARGE_CONTROL]Id/X/GridPowerChargeMin  def:-40 Start Charging if the grid power is smaller than this value [W]
 	@param dbkey-int [CHARGE_CONTROL]Id/X/SwitchBlockTimeSec def:60 don't switch between charge and discharge until this interval [s]
-	@param dbkey-int [CHARGE_CONTROL]Id/X/TopicPower def:"" topic to subscribe power values from smart meter [W] <0:power to public-grid, >0 power-consumption from public.grid
+	@param dbkey-str [CHARGE_CONTROL]Id/X/TopicPower def:"" topic to subscribe power values from smart meter [W] <0:power to public-grid, >0 power-consumption from public.grid
 	""" 
 	def cfg(self,ini):
-		pass
+		def kpfx(str_tail : str):
+			return "Id/{}/{}".format(self.id,str_tail)
+		
+		top_pow = ini.get_str('CHARGE_CONTROL',kpfx('TopicPower'),MQTT_APP_ID)
+		msg = CMQTT.CMSG(top_pow,"dummypl")
+		msg.cb = self.cb_mqtt_sub_power
+		msg.cb_user_data = self.on_cb_grid_power
+		global mqttc
+		mqttc.append_subscribe(msg)
+		lg.info('CC grid power topic:' + str(top_pow))
+		return
+		
 
-	def poll(self,timeslive_ms):
-		pass
+	def poll(self,timeslice_ms):
+		
+		self.ts_1000ms += timeslice_ms
+		if self.ts_1000ms.ts_1000ms >= 1000:
+			self.ts_1000ms.ts_1000ms=0		
+			
+			self.ts_6sec+=1
+			if self.ts_6sec >6:
+				self.ts_6sec = 0
+
+			self.ts_1min+=1
+			if self.ts_1min >59:
+				self.ts_1min = 0
+
+			if self.tmo_grid_sec >= 0:
+				self.tmo_grid_sec-1
+				if self.tmo_grid_sec < 0:
+					self.on_cb_grid_power_tmo()
+		return			
+
+
+	# new power value from grid:
+	# payload: try to parse a simple value in [W]
+	# @todo add a simple json parser
+	def cb_mqtt_sub_power(self,mqttc,user_data,mqtt_msg):
+		try:
+			self.grid_pow = int(mqtt_msg.payload)
+			self.tmo_grid_sec = CChargeCtrlBase.DEF_GRID_TMO_SEC
+			self.on_cb_grid_power(self.grid_pow)
+			self.enabled = True
+		except ValueError:
+			pass	
 
 	""" received a new value from the grid power sensor
 		power value: >0 receive power from the public-grid  
 		power value: <0 inject power to the public-grid 
 	"""
 	def on_cb_grid_power(self,pow_val):
-		self.tmo_grid_sec = CBicCtrlBase.DEF_GRID_TMO
-		
+		self.tmo_grid_sec = CChargeCtrlBase.DEF_GRID_TMO_SEC
+		lg.info('CC (default) new grid power value {}[W]'.format(self.grid_pow))
+
+	# grid power smart meter timeout stop discharging ?
+	def on_cb_grid_power_tmo():
+		lg.warning('CC grid power TMO')
+		return
+
 
 """ @todo
 BIC control and regulation class 
 - simple one charge and discharge depends on power grid value  
 """
-class CBicCtrlSimple(CBicCtrlBase):
+class CChargeCtrlSimple(CChargeCtrlBase):
 	
 	def __init__(self,bic_dev : CBicDevBase):
 		super().__init__(bic_dev)
+		self.avg_pow = CMAvg(3600*1000) #average calculation , store values for on hour
+		self.pow_offset = 40 # [W] offset power for the calculation
+
+	def cfg(self,ini):
+		super().cfg(ini)
+		pass
+
+
+	""" received a new value from the grid power sensor
+		power value: >0 receive power from the public-grid  
+		power value: <0 inject power to the public-grid 
+	"""
+	def on_cb_grid_power(self,pow_val):
+		self.tmo_grid_sec = CChargeCtrlBase.DEF_GRID_TMO_SEC
+		lg.info('CC new grid power value {} [W]'.format(self.grid_pow))
+		self.avg_pow.push_val(pow_val)
+		lg.info('CC val:{}[W] 1min:{}[W] 5min:{}[W] 1h:{}[W]'.format(pow_val,self.avg.avg_get(60*1000),self.avg.avg_get(5*60*1000),self.avg.avg_get(60*60*1000)))
+
+
+	def poll(self,timeslice_ms):
+		super().poll(timeslice_ms)
+		if self.ts_6sec == 1:
+			dev_charge_now = self.charge['chargeP']
+			dev_charge_calc = self.avg.avg_get(60*1000) * (-1) - self.pow_offset
+			lg.info('cc set new value: dev:{}[W] calc:{}[W]'.format(dev_charge_now,dev_charge_calc))
+			if abs(dev_charge_now - dev_charge_calc + self.pow_offset) >10:
+				topic = self.top_inv + '/charge/set'
+				pl = '{"var":"chargeP", "val":{}}'.format(dev_charge_calc)
+				global mqttc
+				#mqttc.publish(topic,pl,0,False) # no retain
+
+	def cfg(self,ini):
+		super().cfg(ini)
+		pass
 
 class App:
 	ts_1000ms=0 # [ms]
@@ -520,6 +610,10 @@ class App:
 				msg.cb = self.cb_mqtt_sub_event
 				msg.cb_user_data = dev
 				mqttc.append_subscribe(msg)
+		
+			dev.cc = CChargeCtrlSimple(dev)
+			dev.cc.cfg(ini)
+
 
 	""" set charging parameter
 		@topic-sub <main-app>/inv/<id>/charge/set {"var":[chargeA,chargeP],"val":[ampere or power]}
@@ -560,6 +654,8 @@ class App:
 			App.ts_1000ms=0
 			for dev in self.dev_bic.values():
 				dev.poll(1000)
+				if dev.cc is not None:
+					dev.cc.poll(1000)
 				
 			App.ts_6sec+=1
 			if App.ts_6sec >6:
