@@ -101,7 +101,7 @@ class CBattery():
 		for k,v in d.items():
 				if k.find('cap2v/')>=0:
 					cap_pc = int(k.replace('cap2v/',''))
-					self.d_Cap2V100[cap_pc] = int(v)
+					self.d_Cap2V100[cap_pc] = float(v)
 		self.check()
 
 	# @return the capacity of the battery [%]
@@ -109,8 +109,8 @@ class CBattery():
 		vret=0
 		for c, v in self.d_Cap2V100.items():
 			if v > v100:
-				return vret
-		return vret
+				return round(vret,2)
+		return round(vret,2)
 
 
 """
@@ -140,6 +140,7 @@ class CBicDevBase():
 		self.system_voltage = 0 # needed for power calculation
 		self.top_inv = "" # MQTT_T_APP + '/inv/' + str(self.id)
 		self.cc = None	# charge control
+		self.bat = self.bat = CBattery(self.id) # battery
 
 		self.info = {}
 		self.info['id'] = int(self.id) # append some info from bic dump
@@ -226,7 +227,7 @@ class CBicDevBase():
 	
 			self.state['acGridV'] = ac_grid	# grid-volatge [V]
 			self.state['dcBatV'] = volt 	# bat voltage DV [V]
-			self.state['capBatPc'] = 0 	# bat capacity [%] , attach CBattery object 
+			self.state['capBatPc'] = self.bat.get_capacity_pc()  	# bat capacity [%] , attach CBattery object 
 		else:
 			self.state['acGridV'] = 0
 			self.state['dcBatV'] = 0
@@ -285,8 +286,8 @@ class CBicDevBase():
 		#self.cfg_max_ccharge100 = ini.get_int('DEVICE',kpfx(MaxChargeCurrent),self.cfg_max_ccharge100)
 		#self.cfg_max_cdischarge100 = ini.get_int('DEVICE',kpfx(MaxDischargeCurrent),self.cfg_max_cdischarge100)
 		self.top_inv = MQTT_T_APP + '/inv/' + str(self.id)
-		
 
+		self.bat.cfg(ini)		
 
 		lg.info("init " + str(self))
 		#dischargedelay = int(config.get('Settings', 'DischargeDelay'))
