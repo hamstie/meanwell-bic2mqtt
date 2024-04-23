@@ -4,20 +4,16 @@ Tool to control Power Supplys from Mean Well via MQTT
 was forked from https://github.com/stcan/meanwell-can-control <br>
 
 Some new features:
- - possible to use cbic2200.py as a module
+ - possible to use cbic2200.py as a python module
  - can bus handling 
-   - read write read check to decrease eeprom write cycles
-   - write read check to increase stability
-   - can read failues will be raised a Timout or RuntimeExeption
- - disabling eeprom write access (not tested yet)
- - (todo) add mqtt-interface client
-
+   - read-write-read check to decrease eeprom write cycles
+   - write-read check to increase stability
+   - read failues will be raised a Timout or RuntimeExeption
+ - disabling eeprom write access (not tested yet, no available firmware-version)
 
 Pre-Tested with the 24V Version BIC-2200-24-CAN<br>
 Please note: this tool is not yet complete and also not fully tested. <br>
 Do not use without monitoring the devices. 
-
-**There is no error handling yet !!!**
 
 What is missing:
 - variables plausibility check
@@ -63,7 +59,6 @@ What is missing:
 # Configuration file **Under Construction !!!** 
 
 Configuration File: bic2mqtt.ini
-
 
 ## Section [ALL]
 
@@ -122,9 +117,8 @@ To control charging and discharging with this app.
 |pub | \<main-app>/inv/<id>charge      |             | 
 |pub | \<main-app>/inv/<id>fault       |             | json fault states of the inverter
 |sub | \<main-app>/inv/<id>charge/set  | {"var":[chargeA,chargeP],"val":[ampere or power]} |
-|sub | \<main-app>/inv/<id>charge/set  | {"var":[chargeA,chargeP],"val":[ampere or power]} |
 |pub | \<main-app>/sys/state/lwt       | [offline,running] | mqtt last will |
-|sub | ini file: [CHARGE_CONTROL]Id/X/TopicPower | value [W] | Charge control: incoming grid power values|
+|sub | ini file: [CHARGE_CONTROL]Id/X/TopicPower | value [W] | Charge control: incoming grid power values as a raw value [W]|
 
         
 # Examples        
