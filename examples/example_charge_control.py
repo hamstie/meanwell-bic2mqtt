@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
-# example for using bic2200.py
-# Version 0.10
+# example for using bic2200.py(original) or cbic2200.py(this fork)
+# Version 0.20
 import sys
 import time
 import schedule
@@ -36,15 +36,19 @@ lastchargetime = time.time()     # Startzeit zur Berechnung der Einspeiseverzög
 # dischargedelay = 10                   # Variable zu verzögerten Einspeisung um nur
                                         # bei längeren Verbräuchen einzuspeisen ( in sec)
 
+BICAPP = "./bic2200.py" # the original one
+BICAPP = "./cbic2200.py" # the new one from this fork
+
+
 # Init CAN Bus
-p = subprocess.run(["./bic2200.py" , "can_up"])
+p = subprocess.run([BICAPP , "can_up"])
 
 
 # Switch on Device
 #if DCOutput == 1:
-#    p = subprocess.run(["./bic2200.py" , "on"])
+#    p = subprocess.run([BICAPP , "on"])
 #elif DCOutput == 0:
-#    p = subprocess.run(["./bic2200.py" , "off"])
+#    p = subprocess.run([BICAPP , "off"])
 #else:
 #    print ("Wrong DCOutput value in charge_control.conf. 1 = on, 0 = off")
 
@@ -55,8 +59,8 @@ if ChargeVoltage > SafeChargeVoltage:
 if DischargeVoltage < SafeDischargeVoltage:
     DischargeVoltage = SafeDischargeVoltage
     
-p = subprocess.run(["./bic2200.py", "cvset", str(ChargeVoltage)])
-p = subprocess.run(["./bic2200.py", "dvset", str(DischargeVoltage)])
+p = subprocess.run([BICAPP, "cvset", str(ChargeVoltage)])
+p = subprocess.run([BICAPP, "dvset", str(DischargeVoltage)])
 
 def control_power():
 
@@ -96,9 +100,9 @@ def control_power():
         Power = 20000
 
     #-------------------------------------------------------------- Read BIC-2200
-    volt = subprocess.run(["./bic2200.py", "vread"], capture_output=True, text=True)
+    volt = subprocess.run([BICAPP, "vread"], capture_output=True, text=True)
     volt_now = float(volt.stdout)
-    amp = subprocess.run(["./bic2200.py", "cread"], capture_output=True, text=True)
+    amp = subprocess.run([BICAPP, "cread"], capture_output=True, text=True)
     amp_now = float(amp.stdout)
     print ("BIC-2200 Volt: ", volt_now/100," Ampere: ", amp_now/100)
     
@@ -118,8 +122,8 @@ def control_power():
             IntCurrent = MaxChargeCurrent
             
 
-        p = subprocess.run(["./bic2200.py" , "charge"])
-        c = subprocess.run(["./bic2200.py" , "ccset" ,  str(IntCurrent)]) 
+        p = subprocess.run([BICAPP , "charge"])
+        c = subprocess.run([BICAPP , "ccset" ,  str(IntCurrent)]) 
 
     if Current < -10:
         dischargetime = time.time()
@@ -139,8 +143,8 @@ def control_power():
             OutCurrent = 0
 
 
-        p = subprocess.run(["./bic2200.py" , "discharge"])
-        c = subprocess.run(["./bic2200.py" , "dcset", str(OutCurrent)]) 
+        p = subprocess.run([BICAPP , "discharge"])
+        c = subprocess.run([BICAPP , "dcset", str(OutCurrent)]) 
 
              
 
