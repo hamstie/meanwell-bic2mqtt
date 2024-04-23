@@ -5,12 +5,14 @@ APP_NAME = "bic2mqtt"
 """
  fst:05.04.2024 lst:23.04.2024
  Meanwell BIC2200-XXCAN to mqtt bridge
+
  V0.20 ..charge control testing
  V0.10 charge and discharging is possible for device BIC2200-24-CAN
  V0.04 cbic2200 first tests
  V0.01 mqtt is running
  V0.00 No fuction yet, working on the app-frame
 
+ @todo: check what happened if the broker is unreachable
 
  - EEPROM Write is possible since datecode:2402..
 """
@@ -110,10 +112,12 @@ class CBattery():
 
 		#@audit approx values between two cap values in the list
 		def approx(c1:float ,c2:float,v1:float,v2:float):
+			
 			#straight line equation y=ax+b
 			a = (c2-c1) / (v2-v1)
 			b = c1
 			y = a * volt + b
+			#print("c1:{} c2:{} v1:{} v2:{} a:{}".format(c1,c2,v1,v2,a))
 			return round(y)
 
 		c1 = 0
@@ -302,7 +306,7 @@ class CBicDevBase():
 		self.cfg_min_vdischarge100 = ini.get_int('DEVICE',kpfx("DischargeVoltage") ,self.cfg_min_vdischarge100)
 
 		self.cfg_max_ccharge100 = 1000 #ini.get_int('DEVICE',kpfx(MaxChargeCurrent),self.cfg_max_ccharge100)
-		self.cfg_max_cdischarge100 = 1000 #ini.get_int('DEVICE',kpfx(MaxDischargeCurrent),self.cfg_max_cdischarge100)
+		self.cfg_max_cdischarge100 = 1500 #ini.get_int('DEVICE',kpfx(MaxDischargeCurrent),self.cfg_max_cdischarge100)
 		self.top_inv = MQTT_T_APP + '/inv/' + str(self.id)
 
 		self.bat.cfg(ini)
@@ -490,9 +494,11 @@ class CChargeCtrlBase():
 		self.grid_pow = 0 # last grid power value
 		self.calc_pow = 0 # calculated power to set 
 		self.ts_1000ms=0 # timeslice 1000ms [ms]
-		self.ts_6sec=0 # timeslive 6sec [s]
+		self.ts_calc_sec=0 # timeslice for each calculation [s]
+		self.ts_calc_cfg=12 # timeslice cfg
 		self.ts_1min=0 # timeslive 1min [s]
 		self.new_grid_power_value = False # grid power received value arrived
+
 
 	def __str__(self):
 		ret = "cc-id:{} gp:{}[W] sp:{}[W]".format(self.id,self.grid_pow,self.cal_pow)
@@ -504,6 +510,7 @@ class CChargeCtrlBase():
 	ini file config parameter
 	@param dbkey-str [CHARGE_CONTROL]Id/X/TopicPower def:"" topic to subscribe power values from smart meter [W] <0:power to public-grid, >0 power-consumption from public.grid
 	@param dbkey-int [CHARGE_CONTROL]Id/X/Enabled def:1 if it is defined  in ini -> enabled
+	@param dbkey-int [CHARGE_CONTROL]Id/X/TimeSliceCalcSec def:12[s] timeslice for each calculation [s]
 	# not used
 	@param dbkey-int [CHARGE_CONTROL]Id/X/Type def:"SIMPLE" if the type is undefined, the regulation is disabled"
 	@param dbkey-int [CHARGE_CONTROL]Id/X/NightCap def:30 store capacity for the night [%]
@@ -526,12 +533,14 @@ class CChargeCtrlBase():
 		_enabled = ini.get_int('CHARGE_CONTROL',kpfx('Enabled'),0)
 		if _enabled >0:
 			self.enabled = True
+		self.ts_calc_cfg = ini.get_int('CHARGE_CONTROL',kpfx('TimeSliceCalcSec'),self.ts_calc_cfg)
 		return
 
 
 	# calculate new power value to set, overwrite it !
 	def calc_power(self):
-		#self.calc_power = 0 
+		raise RuntimeWarning('overwrite me')
+		#self.calc_pow = 0 
 
 	def poll(self,timeslice_ms):
 
@@ -539,9 +548,10 @@ class CChargeCtrlBase():
 		if self.ts_1000ms >= 1000:
 			self.ts_1000ms=0
 
-			self.ts_6sec+=1
-			if self.ts_6sec >6:
-				self.ts_6sec = 0
+			self.ts_calc_sec+=1
+			#print(str(self.ts_calc_sec))
+			if self.ts_calc_sec > (self.ts_calc_cfg-1):
+				self.ts_calc_sec = 0
 
 			self.ts_1min+=1
 			if self.ts_1min >59:
@@ -594,7 +604,7 @@ class CChargeCtrlSimple(CChargeCtrlBase):
 		self.avg_pow = CMAvg(3600*1000) #average calculation , store values for on hour
 		self.charge_pow_offset = 0 # [W] offset power for the calculation, move the zero point of power balance
 		self.charge_pow_tol = 10 # [W] don't set new charge value if the running one is nearby
-		self.discharge_block_tmo = 0 # [s]  # skip short discharge burst
+		self.discharge_block_tmo = -1 # [s]  # skip short discharge burst
 		self.discharge_block_tmo_cfg = CChargeCtrlSimple.DEF_BLOCK_TIME_DISCHARGE
 
 
@@ -604,14 +614,14 @@ class CChargeCtrlSimple(CChargeCtrlBase):
 		@param dbkey-int [CHARGE_CONTROL]Id/X/ChargeTol def: 10[W] don't set new charge value if the running one is nearby
 	"""
 	def cfg(self,ini):
-		super().cfg(ini)
-
+		
 		def kpfx(str_tail : str):
 			return "Id/{}/{}".format(self.id,str_tail)
 
-		self.discharge_block_tmo_cfg = ini.get_str('CHARGE_CONTROL',kpfx('DischargeBlockTimeSec'),CChargeCtrlSimple.DEF_BLOCK_TIME_DISCHARGE)
-		self.charge_pow_offset = ini.get_str('CHARGE_CONTROL',kpfx('ChargePowerOffset'),self.charge_pow_offset)
-		self.charge_pow_tol = ini.get_str('CHARGE_CONTROL',kpfx('ChargeTol'),self.charge_pow_tol)
+		super().cfg(ini)
+		self.discharge_block_tmo_cfg = ini.get_int('CHARGE_CONTROL',kpfx('DischargeBlockTimeSec'),CChargeCtrlSimple.DEF_BLOCK_TIME_DISCHARGE)
+		self.charge_pow_offset = ini.get_int('CHARGE_CONTROL',kpfx('ChargePowerOffset'),self.charge_pow_offset)
+		self.charge_pow_tol = ini.get_int('CHARGE_CONTROL',kpfx('ChargeTol'),self.charge_pow_tol)
 
 	""" received a new value from the grid power sensor
 		power value: >0 receive power from the public-grid
@@ -623,7 +633,7 @@ class CChargeCtrlSimple(CChargeCtrlBase):
 		self.tmo_grid_sec = CChargeCtrlBase.DEF_GRID_TMO_SEC
 		lg.info('CC new grid power value {} [W]'.format(self.grid_pow))
 		self.avg_pow.push_val(pow_val)
-		lg.info('CC val:{}[W] 1min:{}[W] 5min:{}[W] 1h:{}[W]'.format(pow_val,self.avg_pow.avg_get(60*1000),self.avg_pow.avg_get(5*60*1000),self.avg_pow.avg_get(60*60*1000)))
+		lg.info('CC val:{}[W] 1min:{}[W] 5min:{}[W] 1h:{}[W]'.format(pow_val,self.avg_pow.avg_get(60*1000,-1),self.avg_pow.avg_get(5*60*1000,-1),self.avg_pow.avg_get(60*60*1000,-1)))
 
 
 	""" simple charge discharge control:
@@ -631,41 +641,36 @@ class CChargeCtrlSimple(CChargeCtrlBase):
 		- discharge block time, skip fast charge, discharge toggle
 	"""
 	def calc_power(self):
-		#self.calc_power = 0 
 		charge_pow = self.dev_bic.charge['chargeP']
-		grid_pow = self.avg_pow.avg_get(60*1000) + self.charge_pow_offset
-		
-		new_calc_pow = self.calc_pow + grid_pow * (-1)
+		grid_pow = round(self.avg_pow.avg_get(60*1000,-1) + self.charge_pow_offset)
+		LOOP_GAIN = 0.8
+		new_calc_pow = math_round_up(charge_pow  + (grid_pow * LOOP_GAIN * (-1)))
 
 		# check and skip short discharge burst e.g. use the grid power for the tee-kettle
 		if new_calc_pow >0:
 			self.discharge_block_tmo = self.discharge_block_tmo_cfg
 		elif new_calc_pow <0 and self.discharge_block_tmo >=0:
 			self.discharge_block_tmo -= 6
-			lg.info('cc discharge block time now:{}[W] calc:{}[W] tmo:{}[s]'.format(charge_pow,new_calc_pow,self.discharge_block_tmo))
+			lg.info('cc discharge block  time now:{}[W] calc:{}[W] tmo:{}[s]'.format(charge_pow,new_calc_pow,self.discharge_block_tmo))
 			return
 
-		if abs(self.calc_power - new_calc_pow) > self.charge_pow_tol:
-			lg.info('cc set new value: now:{}[W] calc:{}[W]'.format(charge_pow,new_calc_pow))
+		if True: # abs(int(self.calc_pow - new_calc_pow)) > self.charge_pow_tol:
+			lg.info('cc set new value: grid:{} now:{}[W] calc:{}[W] ofs:{}[W]'.format(grid_pow,charge_pow,new_calc_pow,self.charge_pow_offset))
 			topic = self.dev_bic.top_inv + '/charge/set'
 			dpl = {"var":"chargeP"}
 			dpl['val'] = int(new_calc_pow)
-			print("top:{} pl:{}".format(topic,str(dpl)))
+			#print("top:{} pl:{}".format(topic,str(dpl)))
 			global mqttc
-			#mqttc.publish(topic,json.dumps(dpl, sort_keys=False, indent=0),0,False) # no retain
+			mqttc.publish(topic,json.dumps(dpl, sort_keys=False, indent=0),0,False) # no retain
 
-		self.calc_power = new_calc_pow
+		self.calc_pow = new_calc_pow
 
 
 	def poll(self,timeslice_ms):
 		super().poll(timeslice_ms)
-		if self.ts_6sec == 5 and self.new_grid_power_value is True:
+		if self.ts_calc_sec == 5 and self.new_grid_power_value is True:
 			self.new_grid_power_value = False
 			self.calc_power()
-
-	def cfg(self,ini):
-		super().cfg(ini)
-		pass
 
 class App:
 	ts_1000ms=0 # [ms]
@@ -720,7 +725,7 @@ class App:
 		@topic-sub <main-app>/inv/<id>/charge/set {"var":[chargeA,chargeP],"val":[ampere or power]}
 	"""
 	def cb_mqtt_sub_event(self,mqttc,user_data,mqtt_msg):
-		print('on subsc:' + mqtt_msg.pp())
+		#print('on subsc:' + mqtt_msg.pp())
 		dev = user_data
 		if dev.top_inv + "/charge/set" == mqtt_msg.topic:
 			try:
@@ -759,7 +764,7 @@ class App:
 					dev.cc.poll(1000)
 
 			App.ts_6sec+=1
-			if App.ts_6sec >6:
+			if App.ts_6sec >5:
 				App.ts_6sec=0
 
 			App.ts_1min+=1
@@ -777,6 +782,9 @@ class App:
 		self.info['conCnt'] = mqttc.conn_cnt
 		return json.dumps(self.info, sort_keys=False, indent=4)
 
+# roundup 56->10 
+def math_round_up(val):
+	return int(round(val,-1))
 
 # The callback for when the client receives a CONNACK response from the server.
 def mqtt_on_connect(mqtt,userdata):

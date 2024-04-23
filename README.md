@@ -97,9 +97,9 @@ To control charging and discharging with this app.
 
 |key                         | default value           | description   |
 |----------------------------|-------------------------|-------------- |
-|Id/XEnable                  | def:1                   | >0 local charge control is enabled |
-|Id/X/TopicPower             | ""                      | subscribe topic for grid power values from the smart meter  <0:power to public-grid, >0 power-consumption from public.grid|
-
+|Id/X/Enable                  | def:1                   | >0 local charge control is enabled |
+|Id/X/TopicPower             | ""                       | subscribe topic for grid power values from the smart meter  <0:power to public-grid, >0 power-consumption from public.grid|
+|Id/X/TimeSliceCalcSec       | def:12 [s]               | time slice for each calculation loop |
 
 --------
 
