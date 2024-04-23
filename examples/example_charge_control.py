@@ -4,14 +4,12 @@
 # Version 0.20
 import sys
 import time
-import schedule
 import json
 import subprocess
 import requests
 import datetime
 import configparser
 
-from func_timeout import func_timeout, FunctionTimedOut
 
 # Safe Values for Voltages and Currents 
 SafeChargeVoltage = 2750
@@ -36,9 +34,8 @@ lastchargetime = time.time()     # Startzeit zur Berechnung der Einspeiseverzög
 # dischargedelay = 10                   # Variable zu verzögerten Einspeisung um nur
                                         # bei längeren Verbräuchen einzuspeisen ( in sec)
 
-BICAPP = "./bic2200.py" # the original one
-BICAPP = "./cbic2200.py" # the new one from this fork
-
+BICAPP = "../bic2200.py" # the original one
+BICAPP = "../cbic2200.py" # the new one from this fork
 
 # Init CAN Bus
 p = subprocess.run([BICAPP , "can_up"])
