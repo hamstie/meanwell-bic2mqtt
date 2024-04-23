@@ -199,8 +199,7 @@ class CBicDevBase():
 
 	def stop(self):
 		lg.warning("device stoped id:" + str(self.id))
-		self.bic.charge_current(CBic.e_cmd_write,self.cfg_min_ccharge100)
-		self.bic.discharge_current(CBic.e_cmd_write,self.cfg_min_cdischarge100)
+		self.charge_set_idle()
 		#self.bic.operation(0)
 		self.onl_mode = CBicDevBase.e_onl_mode_offline
 		self.update_state()
@@ -326,9 +325,8 @@ class CBicDevBase():
 			lg.info('reached init:' + str(self))
 			self.onl_mode = CBicDevBase.e_onl_mode_init
 			# set the charge and discharge values of the battery
+			self.charge_set_idle()
 			self.bic.charge_voltage(CBic.e_cmd_write,self.cfg_max_vcharge100)
-			self.bic.discharge_voltage(CBic.e_cmd_write,self.cfg_min_vdischarge100)
-			self.bic.charge_current(CBic.e_cmd_write,self.cfg_min_ccharge100)
 			self.bic.discharge_current(CBic.e_cmd_write,self.cfg_min_cdischarge100)
 			self.bic.operation(1)
 
@@ -420,6 +418,13 @@ class CBicDevBase():
 
 		return -1
 
+
+	# set charging to neutral position nearby 0.8A charging
+	def charge_set_idle(self):
+		self.bic.charge_current(CBic.e_cmd_write,self.cfg_min_ccharge100)
+		self.bic.discharge_current(CBic.e_cmd_write,self.cfg_min_cdischarge100)
+		self.bic.BIC_chargemode(CBic.e_charge_mode_charge)
+
 	def charge_set_pow(self,val_pow:int):
 		v = self.charge['chargeP']
 		if v < 20:
@@ -427,6 +432,8 @@ class CBicDevBase():
 		amp = int(val_pow) / v
 		#print('calcP:' + str(val_pow) + ' amp:' + str(amp))
 		self.charge_set_amp(amp)
+
+
 
 
 # device type 2200-24V CAN
