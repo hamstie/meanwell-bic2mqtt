@@ -37,7 +37,7 @@ VER = "0.2.73"
 #       - return list of fault-bits for sttus processing
 #       + dump()
 #       - init_mode try to disable parameter eeprom write mode
-# hamstie 22.04.2024 Version 0.2.73
+# hamstie 23.04.2024 Version 0.2.73
 #       + can_send_receive word(), skip useless eeprom writes and check the value with write read sequence
 
 import os
@@ -220,6 +220,7 @@ class CBic:
     read a word if it is equal to val, do nothing (force is False)
     - send the value and read the returned value
     - raise exception if given and received value are not equal
+    - return True for success
     """
     def can_send_receive_word(self,cmd :int,val:int,force=False):
     
@@ -249,7 +250,7 @@ class CBic:
         vr=self.can_receive()
         #print("vr:{} val:{}".format(vr,val))        
         if vr != val:
-            raise RuntimeError("cant set value command:{} val:{}".format(hex(cmd),val))
+            raise RuntimeError("can't set value command:{} vr:{} val:{}".format(hex(cmd),vr,val))
         
         return True
 
@@ -319,7 +320,7 @@ class CBic:
     # charge voltage, max. volatge level of battery
     def charge_voltage(self,rw,val=0):
         # print ("read/set charge voltage")
-        # Command Code 0x0020
+        # Command Code 0x0020 e_cmd_VOUT_SET
         # Read Charge Voltage
         commandhighbyte = 0x00
         commandlowbyte = 0x20
@@ -329,12 +330,8 @@ class CBic:
             return self.can_receive()
         else:
             val=int(val)
-            hb, lb = get_high_low_byte(val)
-            self.can_send_msg([commandlowbyte,commandhighbyte,lb,hb])
-            vr = int(self.charge_voltage(CBic.e_cmd_read))
-            if vr != val:
-                raise RuntimeError("cant set charge voltage:" + str(vr))
-            return vr
+            self.can_send_receive_word(CBic.e_cmd_VOUT_SET,val)
+            return val
 
     def charge_current(self,rw,val=0): #0=read, 1=set
         # print ("read/set charge current")
@@ -348,11 +345,6 @@ class CBic:
             return self.can_receive()
         else:
             val=int(val)
-            """
-            hb,lb = get_high_low_byte(val)
-            v=val
-            self.can_send_msg([commandlowbyte,commandhighbyte,lb,hb])
-            """
             self.can_send_receive_word(CBic.e_cmd_IOUT_SET,val)
             return val
 
@@ -371,12 +363,8 @@ class CBic:
             return self.can_receive()
         else:
             val=int(val)
-            hb,lb = get_high_low_byte(val)
-            self.can_send_msg([commandlowbyte,commandhighbyte,lb,hb])
-            vr = int(self.discharge_voltage(CBic.e_cmd_read))
-            if vr != val:
-                raise RuntimeError("cant set discharge voltage:" + str(vr))
-            return vr
+            self.can_send_receive_word(CBic.e_cmd_REVERSE_VOUT_SET,val)
+            return val
 
     def discharge_current(self,rw,val=0): #0=read, 1=set
         # print ("read/set charge current")
