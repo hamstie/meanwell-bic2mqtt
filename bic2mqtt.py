@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-APP_VER = "0.20"
+APP_VER = "0.21"
 APP_NAME = "bic2mqtt"
 
 """
- fst:05.04.2024 lst:23.04.2024
+ fst:05.04.2024 lst:24.04.2024
  Meanwell BIC2200-XXCAN to mqtt bridge
 
  V0.20 ..charge control testing
@@ -115,7 +115,7 @@ class CBattery():
 			
 			#straight line equation y=ax+b
 			a = (c2-c1) / (v2-v1)
-			b = c1
+			b = c1 / (a * v1)
 			y = a * volt + b
 			#print("c1:{} c2:{} v1:{} v2:{} a:{}".format(c1,c2,v1,v2,a))
 			return round(y)
@@ -124,7 +124,7 @@ class CBattery():
 		v1 = 0
 		for c2, v2 in self.d_Cap2V.items():
 			if v2 > volt:
-				#print("bat approx v:{} vapprox:{} c1:{}".format(volt,approx(c1,c2,v1,v2),c1))
+				print("bat approx v:{} vapprox:{} c1:{}".format(volt,approx(c1,c2,v1,v2),c1))
 				return c1 # return the previous value
 			c1 = c2
 			v1 = v2
