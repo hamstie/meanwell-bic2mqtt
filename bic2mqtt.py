@@ -174,11 +174,15 @@ class CBicDevBase():
 		self.state['dcBatV'] = 0 # bat voltage DV [V]
 		self.state['capBatPc'] = 0 # bat capacity [%]  @todo
 
+		
+		self.avg_pow_charge = CMAvg(24*3600*1000) #average calculation or charged kWh
+		self.avg_pow_discharge = CMAvg(24*3600*1000) #average calculation or dischrged kWh
 		self.charge = {}
 		self.charge['chargeA'] = 0  # [A] discharge[-] charge[+]
 		self.charge['chargeP'] = 0  # [VA] discharge[-] charge[+]
 		self.charge['chargeSetA'] = 0 # [A] configured and readed value [A]
-
+		self.charge['chargedKWh'] = 0 # charged kWh
+		self.charge['dischargedKWh'] = 0 # discharged kWh
 
 		self.fault = {} # dic of all fault-states
 
@@ -268,8 +272,8 @@ class CBicDevBase():
 
 			volt = round(float(self.bic.vread()) / 100,2)
 			amp = round(float(self.bic.cread()) / 100,2)
-			self.state['dcBatV'] = volt 	# bat voltage DV [V]
-			self.charge['chargeA'] = amp  	# bat [A] discharge[-] charge[+] ?
+			self.state['dcBatV'] = round(volt,1) 	# bat voltage DV [V]
+			self.charge['chargeA'] = round(amp,1)  	# bat [A] discharge[-] charge[+] ?
 			self.charge['chargeP'] = round(amp * volt)  # bat [VA] discharge[-] charge[+]
 			cdir = self.bic.BIC_chargemode_read()
 			if cdir == CBic.e_charge_mode_charge:
@@ -501,6 +505,7 @@ class CChargeCtrlBase():
 		self.new_grid_power_value = False # grid power received value arrived
 
 
+
 	def __str__(self):
 		ret = "cc-id:{} gp:{}[W] sp:{}[W]".format(self.id,self.grid_pow,self.cal_pow)
 		return ret
@@ -605,9 +610,8 @@ class CChargeCtrlSimple(CChargeCtrlBase):
 		self.avg_pow = CMAvg(3600*1000) #average calculation , store values for on hour
 		self.charge_pow_offset = 0 # [W] offset power for the calculation, move the zero point of power balance
 		self.charge_pow_tol = 10 # [W] don't set new charge value if the running one is nearby
-		self.discharge_block_tmo = -1 # [s]  # skip short discharge burst
 		self.discharge_block_tmo_cfg = CChargeCtrlSimple.DEF_BLOCK_TIME_DISCHARGE
-
+		self.t_last_charge = datetime.now()
 
 	""" Charge Control Simple:
 		@param dbkey-int [CHARGE_CONTROL]Id/X/DischargeBlockTimeSec def: 60[s] skip short discharge bursts
@@ -643,6 +647,13 @@ class CChargeCtrlSimple(CChargeCtrlBase):
 		- discharge block time, skip fast charge, discharge toggle
 	"""
 	def calc_power(self):
+
+		# @return the time diff in seconds for the given time and now  
+		def get_time_diff_sec(t_past):
+			now =  datetime.now()
+			diff = now - t_past
+			return diff.seconds
+
 		charge_pow = self.dev_bic.charge['chargeP']
 		grid_pow = round(self.avg_pow.avg_get(60*1000,-1) + self.charge_pow_offset)
 		LOOP_GAIN = 0.8
@@ -656,11 +667,12 @@ class CChargeCtrlSimple(CChargeCtrlBase):
 		
 		# check and skip short discharge burst e.g. use the grid power for the tee-kettle
 		if new_calc_pow >0:
-			self.discharge_block_tmo = self.discharge_block_tmo_cfg
-		elif new_calc_pow <0 and self.discharge_block_tmo >=0:
-			self.discharge_block_tmo -= 6
-			lg.info('cc discharge block  time now:{}[W] calc:{}[W] tmo:{}[s]'.format(charge_pow,new_calc_pow,self.discharge_block_tmo))
-			return
+			self.t_last_charge = datetime.now()
+		elif new_calc_pow <0:
+			tdiff = get_time_diff_sec(self.t_last_charge)
+			if tdiff <= self.discharge_block_tmo_cfg:
+				lg.info('cc discharge block  time now:{}[W] calc:{}[W] tmo:{}[s]'.format(charge_pow,new_calc_pow,tdiff))
+				new_calc_pow = 0
 
 		if True: # abs(int(self.calc_pow - new_calc_pow)) > self.charge_pow_tol:
 			lg.info('cc set new value: grid:{} now:{}[W] calc:{}[W] ofs:{}[W]'.format(grid_pow,charge_pow,new_calc_pow,self.charge_pow_offset))
