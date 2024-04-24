@@ -635,6 +635,7 @@ class CChargeCtrlSimple(CChargeCtrlBase):
 		lg.info('CC new grid power value {} [W]'.format(self.grid_pow))
 		self.avg_pow.push_val(pow_val)
 		lg.info('CC val:{}[W] 1min:{}[W] 5min:{}[W] 1h:{}[W]'.format(pow_val,self.avg_pow.avg_get(60*1000,-1),self.avg_pow.avg_get(5*60*1000,-1),self.avg_pow.avg_get(60*60*1000,-1)))
+		self.calc_power()
 
 
 	""" simple charge discharge control:
@@ -645,8 +646,14 @@ class CChargeCtrlSimple(CChargeCtrlBase):
 		charge_pow = self.dev_bic.charge['chargeP']
 		grid_pow = round(self.avg_pow.avg_get(60*1000,-1) + self.charge_pow_offset)
 		LOOP_GAIN = 0.8
+		POW_LIMIT = 500
 		new_calc_pow = math_round_up(charge_pow  + (grid_pow * LOOP_GAIN * (-1)))
 
+		if new_calc_pow > 0 and new_calc_pow > POW_LIMIT:
+			new_calc_pow = POW_LIMIT
+		elif new_calc_pow < 0 and abs(new_calc_pow) > POW_LIMIT:
+			new_calc_pow = -POW_LIMIT
+		
 		# check and skip short discharge burst e.g. use the grid power for the tee-kettle
 		if new_calc_pow >0:
 			self.discharge_block_tmo = self.discharge_block_tmo_cfg
@@ -671,7 +678,7 @@ class CChargeCtrlSimple(CChargeCtrlBase):
 		super().poll(timeslice_ms)
 		if self.ts_calc_sec == 5 and self.new_grid_power_value is True:
 			self.new_grid_power_value = False
-			self.calc_power()
+			#c
 
 class App:
 	ts_1000ms=0 # [ms]
