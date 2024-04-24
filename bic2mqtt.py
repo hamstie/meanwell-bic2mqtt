@@ -112,10 +112,10 @@ class CBattery():
 
 		#@audit approx values between two cap values in the list
 		def approx(c1:float ,c2:float,v1:float,v2:float):
-			
+
 			#straight line equation y=ax+b
 			a = (c2-c1) / (v2-v1)
-			b = c1 / (a * v1)
+			b = c1 - (a * v1)
 			y = a * volt + b
 			#print("c1:{} c2:{} v1:{} v2:{} a:{}".format(c1,c2,v1,v2,a))
 			return round(y)
@@ -124,8 +124,9 @@ class CBattery():
 		v1 = 0
 		for c2, v2 in self.d_Cap2V.items():
 			if v2 > volt:
-				print("bat approx v:{} vapprox:{} c1:{}".format(volt,approx(c1,c2,v1,v2),c1))
-				return c1 # return the previous value
+				#print("bat approx v:{} vapprox:{} c1:{}".format(volt,approx(c1,c2,v1,v2),c1))
+				return approx(c1,c2,v1,v2)
+				#return c1 # return the previous value
 			c1 = c2
 			v1 = v2
 		# not found ? raise runtime error?
