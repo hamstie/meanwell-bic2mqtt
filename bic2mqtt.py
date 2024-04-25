@@ -173,7 +173,6 @@ class CBicDevBase():
 		self.state['dcBatV'] = 0 # bat voltage DV [V]
 		self.state['capBatPc'] = 0 # bat capacity [%]  @todo
 
-		
 		self.avg_pow_charge = CMAvg(24*3600*1000) #average calculation or charged kWh
 		self.avg_pow_discharge = CMAvg(24*3600*1000) #average calculation or dischrged kWh
 		self.charge = {}
@@ -222,6 +221,18 @@ class CBicDevBase():
 		jpl = json.dumps(self.info, sort_keys=False, indent=4)
 		global mqttc
 		mqttc.publish(MQTT_T_APP + '/inv/' + str(self.id) +  '/info',jpl,0,True) # retained
+
+	""" not used
+	def update_power(self):
+		if self.onl_mode > CBicDevBase.e_onl_mode_init:
+			volt = round(float(self.bic.vread()) / 100,2)
+			amp = round(float(self.bic.cread()) / 100,2)
+			pow =  round(amp * volt)
+			if pow >0:
+				self.avg_pow_charge.push_value(pow)
+			elif pow <0:
+				self.avg_pow_discharge.push_value(pow)
+	"""
 
 
 	# read from bic the voltage and battery parameter
@@ -273,11 +284,14 @@ class CBicDevBase():
 			amp = round(float(self.bic.cread()) / 100,2)
 			self.state['dcBatV'] = round(volt,1) 	# bat voltage DV [V]
 			self.charge['chargeA'] = round(amp,1)  	# bat [A] discharge[-] charge[+] ?
-			self.charge['chargeP'] = round(amp * volt)  # bat [VA] discharge[-] charge[+]
+			pow_w = round(amp * volt)
+			self.charge['chargeP'] = pow_w  # bat [VA] discharge[-] charge[+]
 			cdir = self.bic.BIC_chargemode_read()
 			if cdir == CBic.e_charge_mode_charge:
 				amp = round((self.bic.charge_current(CBic.e_cmd_read) / 100),2)
+				self.avg_pow_charge.push_value(pow_w)
 			else:
+				self.avg_pow_discharge.push_value(pow)
 				amp = round((self.bic.discharge_current(CBic.e_cmd_read) / 100) * (-1),2)
 
 			self.charge['chargeSetA'] = amp # [A] configured and readed value [A]
@@ -372,6 +386,10 @@ class CBicDevBase():
 			fault_check_update()
 		elif App.ts_6sec == 2:
 			pass
+
+
+		#self.avg_pow_charge.push_value()
+		#self.avg_pow_discharge.push_value()
 
 		if self.tmo_info_ms >=0:
 			self.tmo_info_ms -= timeslive_ms
@@ -498,7 +516,7 @@ class CChargeCtrlBase():
 		self.id = dev_bic.id
 		self.tmo_grid_sec = CChargeCtrlBase.DEF_GRID_TMO_SEC # grid tmo timer
 		self.grid_pow = 0 # last grid power value
-		self.calc_pow = 0 # calculated power to set 
+		self.calc_pow = 0 # calculated power to set
 		self.ts_1000ms=0 # timeslice 1000ms [ms]
 		self.ts_calc_sec=0 # timeslice for each calculation [s]
 		self.ts_calc_cfg=12 # timeslice cfg
@@ -547,7 +565,7 @@ class CChargeCtrlBase():
 	# calculate new power value to set, overwrite it !
 	def calc_power(self):
 		raise RuntimeWarning('overwrite me')
-		#self.calc_pow = 0 
+		#self.calc_pow = 0
 
 	def poll(self,timeslice_ms):
 
@@ -620,7 +638,7 @@ class CChargeCtrlSimple(CChargeCtrlBase):
 		@param dbkey-int [CHARGE_CONTROL]Id/X/ChargeTol def: 10[W] don't set new charge value if the running one is nearby
 	"""
 	def cfg(self,ini):
-		
+
 		def kpfx(str_tail : str):
 			return "Id/{}/{}".format(self.id,str_tail)
 
@@ -636,12 +654,17 @@ class CChargeCtrlSimple(CChargeCtrlBase):
 		- haus/kel/pgrid/pnow
 	"""
 	def on_cb_grid_power(self,pow_val):
+		def avg2min(minute : int):
+			return self.avg_pow.avg_get(minute*60*1000,-1)
+
 		self.tmo_grid_sec = CChargeCtrlBase.DEF_GRID_TMO_SEC
 		lg.info('CC new grid power value {} [W]'.format(self.grid_pow))
 		self.avg_pow.push_val(pow_val)
+
 		lg.info('CC val:{}[W] 1min:{}[W] 5min:{}[W] 1h:{}[W]'.format(pow_val,self.avg_pow.avg_get(60*1000,-1),self.avg_pow.avg_get(5*60*1000,-1),self.avg_pow.avg_get(60*60*1000,-1)))
 		if self.enabled is True:
 			self.calc_power()
+
 
 
 	""" simple charge discharge control:
@@ -650,7 +673,7 @@ class CChargeCtrlSimple(CChargeCtrlBase):
 	"""
 	def calc_power(self):
 
-		# @return the time diff in seconds for the given time and now  
+		# @return the time diff in seconds for the given time and now
 		def get_time_diff_sec(t_past):
 			now =  datetime.now()
 			diff = now - t_past
@@ -804,7 +827,7 @@ class App:
 		self.info['conCnt'] = mqttc.conn_cnt
 		return json.dumps(self.info, sort_keys=False, indent=4)
 
-# roundup 56->10 
+# roundup 56->10
 def math_round_up(val):
 	return int(round(val,-1))
 
