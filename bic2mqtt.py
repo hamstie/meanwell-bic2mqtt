@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-APP_VER = "0.21"
+APP_VER = "0.22"
 APP_NAME = "bic2mqtt"
 
 """
- fst:05.04.2024 lst:24.04.2024
+ fst:05.04.2024 lst:25.04.2024
  Meanwell BIC2200-XXCAN to mqtt bridge
-
- V0.20 ..charge control testing
+ V0.22 ..charge control testing
  V0.10 charge and discharging is possible for device BIC2200-24-CAN
  V0.04 cbic2200 first tests
  V0.01 mqtt is running
@@ -397,6 +396,7 @@ class CBicDevBase():
 		val <0 discharging the bat
 	"""
 	def charge_set_amp(self,val_amp : float):
+		val_amp = round(val_amp,1)
 		amp100 = 0
 		if self.onl_mode >= CBicDevBase.e_onl_mode_idle:
 			try:
@@ -420,8 +420,9 @@ class CBicDevBase():
 					self.bic.BIC_chargemode(CBic.e_charge_mode_discharge)
 					self.bic.discharge_current(CBic.e_cmd_write,amp100)
 				return 0
-			except:
-				pass
+			except Exception as err:
+				lg.error("can't set charge value:" + str(err))
+
 
 		lg.error("can't set charge value:" + str(val_amp))
 
@@ -639,7 +640,8 @@ class CChargeCtrlSimple(CChargeCtrlBase):
 		lg.info('CC new grid power value {} [W]'.format(self.grid_pow))
 		self.avg_pow.push_val(pow_val)
 		lg.info('CC val:{}[W] 1min:{}[W] 5min:{}[W] 1h:{}[W]'.format(pow_val,self.avg_pow.avg_get(60*1000,-1),self.avg_pow.avg_get(5*60*1000,-1),self.avg_pow.avg_get(60*60*1000,-1)))
-		self.calc_power()
+		if self.enabled is True:
+			self.calc_power()
 
 
 	""" simple charge discharge control:
@@ -655,7 +657,7 @@ class CChargeCtrlSimple(CChargeCtrlBase):
 			return diff.seconds
 
 		charge_pow = self.dev_bic.charge['chargeP']
-		grid_pow = round(self.avg_pow.avg_get(60*1000,-1) + self.charge_pow_offset)
+		grid_pow = round(self.avg_pow.avg_get(5*60*1000,-1) + self.charge_pow_offset)
 		LOOP_GAIN = 0.8
 		POW_LIMIT = 500
 		new_calc_pow = math_round_up(charge_pow  + (grid_pow * LOOP_GAIN * (-1)))
@@ -664,7 +666,7 @@ class CChargeCtrlSimple(CChargeCtrlBase):
 			new_calc_pow = POW_LIMIT
 		elif new_calc_pow < 0 and abs(new_calc_pow) > POW_LIMIT:
 			new_calc_pow = -POW_LIMIT
-		
+
 		# check and skip short discharge burst e.g. use the grid power for the tee-kettle
 		if new_calc_pow >0:
 			self.t_last_charge = datetime.now()
@@ -690,7 +692,6 @@ class CChargeCtrlSimple(CChargeCtrlBase):
 		super().poll(timeslice_ms)
 		if self.ts_calc_sec == 5 and self.new_grid_power_value is True:
 			self.new_grid_power_value = False
-			#c
 
 class App:
 	ts_1000ms=0 # [ms]
@@ -762,6 +763,7 @@ class App:
 				dev.bic.operation(1)
 			else:
 				dev.bic.operation(0)
+			lg.info('set operation mode:' + str(dev.bic.operation_read()))
 
 
 	def start(self):
