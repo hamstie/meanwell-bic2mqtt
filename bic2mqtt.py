@@ -272,7 +272,7 @@ class CBicDevBase():
 		jpl = json.dumps(self.state, sort_keys=False, indent=4)
 		global mqttc
 		mqttc.publish(MQTT_T_APP + '/inv/' + str(self.id) +  '/state',jpl,0,True) # retained
-
+		
 
 	"""	read from bic the charging/discharging parameter
  		@topic-pub <main-app>/inv/<id>/charge
@@ -290,8 +290,10 @@ class CBicDevBase():
 			if cdir == CBic.e_charge_mode_charge:
 				amp = round((self.bic.charge_current(CBic.e_cmd_read) / 100),2)
 				self.avg_pow_charge.push_value(pow_w)
+				self.charge['chargedKWh'] = round(self.avg_pow_charge.avg_get(1000*3600,0) / 1000,1) # need summing not avg
 			else:
 				self.avg_pow_discharge.push_value(pow)
+				self.charge['dischargedKWh'] = round(self.avg_pow_discharge.avg_get(1000*3600,0) / 1000,1)  # need summing not avg
 				amp = round((self.bic.discharge_current(CBic.e_cmd_read) / 100) * (-1),2)
 
 			self.charge['chargeSetA'] = amp # [A] configured and readed value [A]

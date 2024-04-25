@@ -9,7 +9,7 @@ import math
 	- parameter:list length for the average 
 """
 class CMAvg():
-	VER=0.3
+	VER=0.4
 	
 	def __init__(self,max_time_ms,max_values=-1):
 		self.cfg_max_time_ms=max_time_ms # max. time [ms] to store, values -1: inifinite
@@ -87,7 +87,7 @@ class CMAvg():
 ms  123456789.  ts-step	       ts-srep
 	
 	"""
-	def avg_get(self,time_ms=0,round_digits=2):
+	def __off__avg_get(self,time_ms=0,round_digits=2):
 	
 		if len(self)==0:
 			return round(0,round_digits)
@@ -108,6 +108,41 @@ ms  123456789.  ts-step	       ts-srep
 			sum += self.lst_val[idx-1] * step_ms
 			#cnt += 1
 		return round(sum / t_sum_ms,round_digits)
+
+
+
+	# get summ of all values and given interval [ms]
+	def _get_sum_and_time(self,time_ms,round_digits=2):
+		if len(self)==0:
+			return (round(0,round_digits),0)
+		
+		sum = 0
+		ts_now = datetime.now()
+		t_sum_ms = 0
+		ts_step = ts_now
+
+		for idx in range(len(self.lst_val),0,-1):
+			
+			step_ms = math.ceil(self._get_tdiff_ms(ts_step, self.lst_ts[idx-1])) # return min. 1ms
+			ts_step = self.lst_ts[idx-1]
+			
+			if time_ms > 0 and (t_sum_ms+step_ms) > time_ms:
+				break
+
+			t_sum_ms += step_ms
+			sum += self.lst_val[idx-1] * step_ms
+			#cnt += 1
+	
+		return (round(sum,round_digits),t_sum_ms)
+
+
+	def sum_get(self,time_ms,round_digits=2):
+		val_sum,time_ms =  _get_sum_and_time(self,time_ms,round_digits)
+		return cal_sum
+	
+	def avg_get(self,time_ms,round_digits=2):
+		val_sum,time_ms =  _get_sum_and_time(self,time_ms,round_digits)
+		return round(val_sum / time_ms,round_digits)
 
 	# @return the min and max value
 	# if non value in list 0,0 will be returned
