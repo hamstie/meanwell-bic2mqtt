@@ -229,9 +229,9 @@ class CBicDevBase():
 			amp = round(float(self.bic.cread()) / 100,2)
 			pow =  round(amp * volt)
 			if pow >0:
-				self.avg_pow_charge.push_value(pow)
+				self.avg_pow_charge.push_val(pow)
 			elif pow <0:
-				self.avg_pow_discharge.push_value(pow)
+				self.avg_pow_discharge.push_val(pow)
 	"""
 
 
@@ -289,11 +289,12 @@ class CBicDevBase():
 			cdir = self.bic.BIC_chargemode_read()
 			if cdir == CBic.e_charge_mode_charge:
 				amp = round((self.bic.charge_current(CBic.e_cmd_read) / 100),2)
-				self.avg_pow_charge.push_value(pow_w)
-				self.charge['chargedKWh'] = round(self.avg_pow_charge.avg_get(1000*3600,0) / 1000,1) # need summing not avg
+				self.avg_pow_charge.push_val(pow_w)
+				# W/ms -> kW/h
+				self.charge['chargedKWh'] = round(self.avg_pow_charge.sum_get(0,0)/(1E6*3600),1)
 			else:
-				self.avg_pow_discharge.push_value(pow)
-				self.charge['dischargedKWh'] = round(self.avg_pow_discharge.avg_get(1000*3600,0) / 1000,1)  # need summing not avg
+				self.avg_pow_discharge.push_val(pow)
+				self.charge['dischargedKWh'] = round(self.avg_pow_discharge.sum_get(0,0) / (1E6*3600),1)
 				amp = round((self.bic.discharge_current(CBic.e_cmd_read) / 100) * (-1),2)
 
 			self.charge['chargeSetA'] = amp # [A] configured and readed value [A]
@@ -660,10 +661,10 @@ class CChargeCtrlSimple(CChargeCtrlBase):
 			return self.avg_pow.avg_get(minute*60*1000,-1)
 
 		self.tmo_grid_sec = CChargeCtrlBase.DEF_GRID_TMO_SEC
-		lg.info('CC new grid power value {} [W]'.format(self.grid_pow))
+		#lg.info('CC new grid power value {} [W]'.format(self.grid_pow))
 		self.avg_pow.push_val(pow_val)
 
-		lg.info('CC val:{}[W] 1min:{}[W] 5min:{}[W] 1h:{}[W]'.format(pow_val,self.avg_pow.avg_get(60*1000,-1),self.avg_pow.avg_get(5*60*1000,-1),self.avg_pow.avg_get(60*60*1000,-1)))
+		lg.info('CC pow val:{}[W] avg-pow[W]: 1m:{} 2m:{} 5m:{} 1h:{}'.format(pow_val,avg2min(1),avg2min(2),avg2min(5),avg2min(60)))
 		if self.enabled is True:
 			self.calc_power()
 

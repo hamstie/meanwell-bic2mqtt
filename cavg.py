@@ -37,6 +37,7 @@ class CMAvg():
 			lst_print.append("...")
 
 		sret = "avg:{} min,max:{} lst({}):{}".format(round(self.avg_get(),2),str(self.min_max_get()),len(self),str(lst_print))
+		sret += " sum:{}".format(self.sum_get()) 
 		return sret
 
 	def _pop(self,idx=-1):
@@ -77,16 +78,7 @@ class CMAvg():
 		self.lst_ts.append(datetime.now())
 		self._garbage_collector()
 
-	""" @return avg values, if time_ms was set, only calc avg from the given time in [ms]  
-	 - one ms resolution
-	 -  
-	+--+        +--------------+
-	|  |        |       ^      |
-	|  +--------+       ts     |
-	|  |        |<---ts_step-->|
-ms  123456789.  ts-step	       ts-srep
-	
-	"""
+
 	def __off__avg_get(self,time_ms=0,round_digits=2):
 	
 		if len(self)==0:
@@ -111,7 +103,8 @@ ms  123456789.  ts-step	       ts-srep
 
 
 
-	# get summ of all values and given interval [ms]
+	# @return the summing of all values over the time, resulution is [ms]  
+ 	# if time_ms was set, only calc  for the given interval in [ms]  
 	def _get_sum_and_time(self,time_ms,round_digits=2):
 		if len(self)==0:
 			return (round(0,round_digits),0)
@@ -135,13 +128,23 @@ ms  123456789.  ts-step	       ts-srep
 	
 		return (round(sum,round_digits),t_sum_ms)
 
-
-	def sum_get(self,time_ms,round_digits=2):
-		val_sum,time_ms =  _get_sum_and_time(self,time_ms,round_digits)
-		return cal_sum
+	#@retun the summing over the time for the given values per [ms] resulution
+	def sum_get(self,time_ms=0,round_digits=2):
+		val_sum,time_ms =  self._get_sum_and_time(time_ms,round_digits)
+		return val_sum
 	
-	def avg_get(self,time_ms,round_digits=2):
-		val_sum,time_ms =  _get_sum_and_time(self,time_ms,round_digits)
+	""" @return avg values, if time_ms was set, only calc avg from the given time in [ms]  
+	 - one ms resolution
+	 -  
+	+--+        +--------------+
+	|  |        |       ^      |
+	|  +--------+       ts     |
+	|  |        |<---ts_step-->|
+	ms  123456789.  ts-step	       ts-srep
+	
+	"""
+	def avg_get(self,time_ms=0,round_digits=2):
+		val_sum,time_ms =  self._get_sum_and_time(time_ms,round_digits)
 		return round(val_sum / time_ms,round_digits)
 
 	# @return the min and max value
@@ -183,6 +186,8 @@ ms  123456789.  ts-step	       ts-srep
 		#avg.push_val()
 		#avg.avg_get()
 		print(avg)
+		#print('s:' + str(avg.sum_get()))
+		exit()
 		#print("tu avg 1,2,3:" + str(avg.avg_get(2000)))
 		avg.reset()
 		print(avg)
