@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-APP_VER = "0.22"
+APP_VER = "0.23"
 APP_NAME = "bic2mqtt"
 
 """
- fst:05.04.2024 lst:25.04.2024
+ fst:05.04.2024 lst:26.04.2024
  Meanwell BIC2200-XXCAN to mqtt bridge
  V0.22 ..charge control testing
  V0.10 charge and discharging is possible for device BIC2200-24-CAN
@@ -293,7 +293,7 @@ class CBicDevBase():
 				# W/ms -> kW/h
 				self.charge['chargedKWh'] = round(self.avg_pow_charge.sum_get(0,0)/(1E6*3600),1)
 			else:
-				self.avg_pow_discharge.push_val(pow)
+				self.avg_pow_discharge.push_val(pow_w)
 				self.charge['dischargedKWh'] = round(self.avg_pow_discharge.sum_get(0,0) / (1E6*3600),1)
 				amp = round((self.bic.discharge_current(CBic.e_cmd_read) / 100) * (-1),2)
 
@@ -389,10 +389,6 @@ class CBicDevBase():
 			fault_check_update()
 		elif App.ts_6sec == 2:
 			pass
-
-
-		#self.avg_pow_charge.push_value()
-		#self.avg_pow_discharge.push_value()
 
 		if self.tmo_info_ms >=0:
 			self.tmo_info_ms -= timeslive_ms
@@ -683,7 +679,7 @@ class CChargeCtrlSimple(CChargeCtrlBase):
 			return diff.seconds
 
 		charge_pow = self.dev_bic.charge['chargeP']
-		grid_pow = round(self.avg_pow.avg_get(5*60*1000,-1) + self.charge_pow_offset)
+		grid_pow = round(self.avg_pow.avg_get(2*60*1000,-1) + self.charge_pow_offset)
 		LOOP_GAIN = 0.8
 		POW_LIMIT = 500
 		new_calc_pow = math_round_up(charge_pow  + (grid_pow * LOOP_GAIN * (-1)))
