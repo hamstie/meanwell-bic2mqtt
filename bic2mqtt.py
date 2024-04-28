@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-APP_VER = "0.23"
+APP_VER = "0.25"
 APP_NAME = "bic2mqtt"
 
 """
- fst:05.04.2024 lst:26.04.2024
+ fst:05.04.2024 lst:28.04.2024
  Meanwell BIC2200-XXCAN to mqtt bridge
  V0.22 ..charge control testing
  V0.10 charge and discharging is possible for device BIC2200-24-CAN
@@ -181,6 +181,7 @@ class CBicDevBase():
 		self.charge['chargeSetA'] = 0 # [A] configured and readed value [A]
 		self.charge['chargedKWh'] = 0 # charged kWh
 		self.charge['dischargedKWh'] = 0 # discharged kWh
+		self.charge_pow_set = 0 # last setter of charge value from mqtt
 
 		self.fault = {} # dic of all fault-states
 
@@ -326,8 +327,8 @@ class CBicDevBase():
 		self.cfg_max_vcharge100 = ini.get_int('DEVICE',kpfx("ChargeVoltage"),self.cfg_max_vcharge100)
 		self.cfg_min_vdischarge100 = ini.get_int('DEVICE',kpfx("DischargeVoltage") ,self.cfg_min_vdischarge100)
 
-		self.cfg_max_ccharge100 = 1000 #ini.get_int('DEVICE',kpfx(MaxChargeCurrent),self.cfg_max_ccharge100)
-		self.cfg_max_cdischarge100 = 1500 #ini.get_int('DEVICE',kpfx(MaxDischargeCurrent),self.cfg_max_cdischarge100)
+		self.cfg_max_ccharge100 = ini.get_int('DEVICE',kpfx('MaxChargeCurrent'),self.cfg_max_ccharge100)
+		self.cfg_max_cdischarge100 = ini.get_int('DEVICE',kpfx('MaxDischargeCurrent'),self.cfg_max_cdischarge100)
 		self.top_inv = MQTT_T_APP + '/inv/' + str(self.id)
 
 		self.bat.cfg(ini)
@@ -453,13 +454,15 @@ class CBicDevBase():
 		self.bic.BIC_chargemode(CBic.e_charge_mode_charge)
 
 	def charge_set_pow(self,val_pow:int):
+		if self.charge_pow_set == val_pow:
+			return
+		self.charge_pow_set = val_pow
 		v = self.charge['chargeP']
 		if v < 20:
 			v = 24 # set before read from bic
-		amp = int(val_pow) / v
+		amp = int(val_pow) / round(24,1)
 		#print('calcP:' + str(val_pow) + ' amp:' + str(amp))
 		self.charge_set_amp(amp)
-
 
 
 
@@ -563,8 +566,10 @@ class CChargeCtrlBase():
 
 	# calculate new power value to set, overwrite it !
 	def calc_power(self):
-		raise RuntimeWarning('overwrite me')
-		#self.calc_pow = 0
+		if self.dev_bic.onl_mode <= CBicDevBase.e_onl_mode_idle:
+			return False
+		
+		return True
 
 	def poll(self,timeslice_ms):
 
@@ -658,9 +663,9 @@ class CChargeCtrlSimple(CChargeCtrlBase):
 
 		self.tmo_grid_sec = CChargeCtrlBase.DEF_GRID_TMO_SEC
 		#lg.info('CC new grid power value {} [W]'.format(self.grid_pow))
-		self.avg_pow.push_val(pow_val)
+		self.avg_pow.push_val(pow_val+self.charge_pow_offset)
 
-		lg.info('CC pow val:{}[W] avg-pow[W]: 1m:{} 2m:{} 5m:{} 1h:{}'.format(pow_val,avg2min(1),avg2min(2),avg2min(5),avg2min(60)))
+		lg.info('CC pow val:{}[W] avg-pow[W]: 1m:{} 2m:{} 5m:{} 1h:{} off:{}[W]'.format(pow_val,avg2min(1),avg2min(2),avg2min(5),avg2min(60),self.charge_pow_offset))
 		if self.enabled is True:
 			self.calc_power()
 
@@ -672,6 +677,10 @@ class CChargeCtrlSimple(CChargeCtrlBase):
 	"""
 	def calc_power(self):
 
+		is_running = super().calc_power()
+		if is_running is False:
+			return
+
 		# @return the time diff in seconds for the given time and now
 		def get_time_diff_sec(t_past):
 			now =  datetime.now()
@@ -679,9 +688,9 @@ class CChargeCtrlSimple(CChargeCtrlBase):
 			return diff.seconds
 
 		charge_pow = self.dev_bic.charge['chargeP']
-		grid_pow = round(self.avg_pow.avg_get(2*60*1000,-1) + self.charge_pow_offset)
-		LOOP_GAIN = 0.8
-		POW_LIMIT = 500
+		grid_pow = self.avg_pow.avg_get(1000*60,-1)
+		LOOP_GAIN = 1.0
+		POW_LIMIT = 800
 		new_calc_pow = math_round_up(charge_pow  + (grid_pow * LOOP_GAIN * (-1)))
 
 		if new_calc_pow > 0 and new_calc_pow > POW_LIMIT:
@@ -782,11 +791,16 @@ class App:
 				pass
 		elif dev.top_inv + "/state/set" == mqtt_msg.topic:
 			if mqtt_msg.payload == '1':
-				dev.bic.operation(1)
+				dev.op_mode = dev.bic.operation(1)
 			else:
-				dev.bic.operation(0)
-			lg.info('set operation mode:' + str(dev.bic.operation_read()))
-
+				dev.charge_set_amp(0)
+				dev.op_mode = dev.bic.operation(0)
+			dev.state['opMode'] = dev.op_mode
+			lg.info('set operation mode:' + str(dev.op_mode))
+			if dev.op_mode > 0:
+				dev.onl_mode = CBicDevBase.e_onl_mode_running
+			else:	
+				dev.onl_mode = CBicDevBase.e_onl_mode_idle
 
 	def start(self):
 		if self.started is False:

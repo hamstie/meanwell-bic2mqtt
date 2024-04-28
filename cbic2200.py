@@ -11,7 +11,7 @@
 # - variables plausibility check
 # - programming missing functions
 # - current and voltage maximum settings
-VER = "0.2.73"
+VER = "0.2.74"
 # steve 08.06.2023  Version 0.2.1
 # steve 10.06.2023  Version 0.2.2
 # macGH 15.06.2023  Version 0.2.3
@@ -37,7 +37,7 @@ VER = "0.2.73"
 #       - return list of fault-bits for sttus processing
 #       + dump()
 #       - init_mode try to disable parameter eeprom write mode
-# hamstie 23.04.2024 Version 0.2.73
+# hamstie 28.04.2024 Version 0.2.74
 #       + can_send_receive word(), skip useless eeprom writes and check the value with write read sequence
 
 import os
@@ -299,12 +299,14 @@ class CBic:
         return s
 
     # Operation function
+    # @return read value from bic
     def operation(self,val):#0=off, 1=on
         # print ("turn output on/off")
         # Command Code 0x0000
         commandhighbyte = 0x00
         commandlowbyte = 0x00
         self.can_send_msg([commandlowbyte, commandhighbyte,val])
+        val = self.operation_read()
         return val
 
     def operation_read(self):
