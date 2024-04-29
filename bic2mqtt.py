@@ -3,7 +3,7 @@ APP_VER = "0.25"
 APP_NAME = "bic2mqtt"
 
 """
- fst:05.04.2024 lst:28.04.2024
+ fst:05.04.2024 lst:29.04.2024
  Meanwell BIC2200-XXCAN to mqtt bridge
  V0.22 ..charge control testing
  V0.10 charge and discharging is possible for device BIC2200-24-CAN
@@ -525,6 +525,11 @@ class CChargeCtrlBase():
 		self.ts_1min=0 # timeslive 1min [s]
 		self.new_grid_power_value = False # grid power received value arrived
 
+	@staticmethod
+	def sign(x):
+		if x >= 0:
+        		return 1
+        	return -1
 
 
 	def __str__(self):
@@ -565,7 +570,7 @@ class CChargeCtrlBase():
 
 
 	# calculate new power value to set, overwrite it !
-	def calc_power(self):
+	def calc_power(self,grid_pow):
 		if self.dev_bic.onl_mode <= CBicDevBase.e_onl_mode_idle:
 			return False
 		
@@ -663,11 +668,11 @@ class CChargeCtrlSimple(CChargeCtrlBase):
 
 		self.tmo_grid_sec = CChargeCtrlBase.DEF_GRID_TMO_SEC
 		#lg.info('CC new grid power value {} [W]'.format(self.grid_pow))
-		self.avg_pow.push_val(pow_val+self.charge_pow_offset)
+		self.avg_pow.push_val(pow_val)
 
 		lg.info('CC pow val:{}[W] avg-pow[W]: 1m:{} 2m:{} 5m:{} 1h:{} off:{}[W]'.format(pow_val,avg2min(1),avg2min(2),avg2min(5),avg2min(60),self.charge_pow_offset))
 		if self.enabled is True:
-			self.calc_power()
+			self.calc_power(pow_val)
 
 
 
@@ -675,9 +680,9 @@ class CChargeCtrlSimple(CChargeCtrlBase):
 		- new charge value = grid-power * (-1)
 		- discharge block time, skip fast charge, discharge toggle
 	"""
-	def calc_power(self):
+	def calc_power(self,grid_pow):
 
-		is_running = super().calc_power()
+		is_running = super().calc_power(grid_pow)
 		if is_running is False:
 			return
 
@@ -688,10 +693,35 @@ class CChargeCtrlSimple(CChargeCtrlBase):
 			return diff.seconds
 
 		charge_pow = self.dev_bic.charge['chargeP']
-		grid_pow = self.avg_pow.avg_get(1000*60,-1)
-		LOOP_GAIN = 1.0
+		grid_pow = self.avg_pow.avg_get(1*1000*60,-1) + self.charge_pow_offset # used avg grid power with offset
+
+		LOOP_GAIN = 0.5
 		POW_LIMIT = 800
-		new_calc_pow = math_round_up(charge_pow  + (grid_pow * LOOP_GAIN * (-1)))
+
+		#new_calc_pow = math_round_up(charge_pow  + (grid_pow * LOOP_GAIN * (-1)))
+		#grid_pow_2min = 
+
+		#pdiff = round(grid_pow - self.calc_pow,-1)
+		if grid_pow >=0:
+			sign = -1
+		else:
+			sign = 1
+
+		agp = abs(grid_pow)
+
+		if agp <= self.charge_pow_tol:
+			new_calc_pow = self.calc_pow
+		elif agp <= 100:
+			new_calc_pow = self.calc_pow + (10 * sign)
+		elif agp <= 200:
+			new_calc_pow = self.calc_pow + (20 * sign)
+		elif agp <= 400:
+                        new_calc_pow = self.calc_pow + (100 * sign)
+		else:
+			new_calc_pow = self.calc_pow + (200 * sign)
+
+
+		print("diff:" + str(agp) + ' cp:' + str(new_calc_pow) + ' sign:' + str(sign))
 
 		if new_calc_pow > 0 and new_calc_pow > POW_LIMIT:
 			new_calc_pow = POW_LIMIT
