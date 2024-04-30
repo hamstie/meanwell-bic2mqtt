@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-APP_VER = "0.30"
+APP_VER = "0.31"
 APP_NAME = "bic2mqtt"
 
 """
  fst:05.04.2024 lst:30.04.2024
  Meanwell BIC2200-XXCAN to mqtt bridge
+ V0.31 -cleaning charger code
+		- op-mode 0->1 set charge to 0
+		+ discharge block interval
  V0.30 -charge control works
  V0.22 -charge control testing
  V0.10 charge and discharging is possible for device BIC2200-24-CAN
@@ -12,9 +15,9 @@ APP_NAME = "bic2mqtt"
  V0.01 mqtt is running
  V0.00 No fuction yet, working on the app-frame
 
- @todo: P1:check what happened if the broker is unreachable
-	P2:op-mode 0->1 set charge to 0
-	P2:op-mode -1 (toggle) op-mode, usefull for mqtt toggle-button
+ @todo: P1: check what happened if the broker is unreachable
+	    P2: (Toggling display string for MQTT-Dashboards: Power,Temp,Voltage..)
+		P1: DischargeBlockTime Start/Stop
 
  - EEPROM Write is possible since datecode:2402..
 """
@@ -74,6 +77,14 @@ class CIni:
 		try:
 			ret=int(self.get_str(sec,key,str(def_val)))
 			return int(ret)
+		except ValueError:
+			pass
+		return def_val
+
+	def get_float(self,sec : str,key : str,def_val : int):
+		try:
+			ret=float(self.get_str(sec,key,str(def_val)))
+			return float(ret)
 		except ValueError:
 			pass
 		return def_val
@@ -276,7 +287,7 @@ class CBicDevBase():
 		jpl = json.dumps(self.state, sort_keys=False, indent=4)
 		global mqttc
 		mqttc.publish(MQTT_T_APP + '/inv/' + str(self.id) +  '/state',jpl,0,True) # retained
-		
+
 
 	"""	read from bic the charging/discharging parameter
  		@topic-pub <main-app>/inv/<id>/charge
@@ -463,7 +474,7 @@ class CBicDevBase():
 		v = self.charge['chargeP']
 		if v < 20:
 			v = 24 # set before read from bic
-		amp = int(val_pow) / round(24,1)
+		amp = int(val_pow) / round(24,1)  # used normaly the real running voltage @fixme
 		#print('calcP:' + str(val_pow) + ' amp:' + str(amp))
 		self.charge_set_amp(amp)
 
@@ -507,7 +518,7 @@ class CBicDev2200_24(CBicDevBase):
 
 
 
-""" @todo
+"""
 BIC control and regulation class
 - control the bic charge and discharge function
 """
@@ -526,32 +537,47 @@ class CChargeCtrlBase():
 		self.ts_calc_sec=0 # timeslice for each calculation [s]
 		self.ts_calc_cfg=12 # timeslice cfg
 		self.ts_1min=0 # timeslive 1min [s]
-		self.new_grid_power_value = False # grid power received value arrived
+
+		self.avg_pow = CMAvg(3600*1000) #average calculation , store values for on hour
+		self.charge_pow_offset = 0 # [W] offset power for the calculation, move the zero point of power balance
+		self.charge_pow_tol = 10 # [W] don't set new charge value if the running one is nearby
+		self.discharge_block_tmo_cfg = CChargeCtrlSimple.DEF_BLOCK_TIME_DISCHARGE
+		self.t_last_charge = datetime.now()
+
+		self.lst_discharge_block_hour = [-1,-1] # between this two hours , block discharging
 
 	@staticmethod
 	def sign(x):
 		if x >= 0:
 			return 1
 		return -1
+	
+	# @return the time diff in seconds for the given time and now
+	@staticmethod
+	def get_time_diff_sec(t_past):
+		now =  datetime.now()
+		diff = now - t_past
+		return diff.seconds
 
 
 	def __str__(self):
 		ret = "cc-id:{} gp:{}[W] sp:{}[W]".format(self.id,self.grid_pow,self.cal_pow)
 		return ret
 
-	""" @todo
+	"""
 	Charge Contol and regulator
 
 	ini file config parameter
 	@param dbkey-str [CHARGE_CONTROL]Id/X/TopicPower def:"" topic to subscribe power values from smart meter [W] <0:power to public-grid, >0 power-consumption from public.grid
 	@param dbkey-int [CHARGE_CONTROL]Id/X/Enabled def:1 if it is defined  in ini -> enabled
-	@param dbkey-int [CHARGE_CONTROL]Id/X/TimeSliceCalcSec def:12[s] timeslice for each calculation [s]
-	# not used
-	@param dbkey-int [CHARGE_CONTROL]Id/X/Type def:"SIMPLE" if the type is undefined, the regulation is disabled"
-	@param dbkey-int [CHARGE_CONTROL]Id/X/NightCap def:30 store capacity for the night [%]
-	@param dbkey-int [CHARGE_CONTROL]Id/X/NightStartTime def:18:00 start night mode at HH:MM, allow discharging NightCap
-	@param dbkey-int [CHARGE_CONTROL]Id/X/GridPowerDischargeMin def: 50 Discharge min. power [W]
-	@param dbkey-int [CHARGE_CONTROL]Id/X/GridPowerChargeMin  def:-40 Start Charging if the grid power is smaller than this value [W]
+	not used yet @param dbkey-int [CHARGE_CONTROL]Id/X/TimeSliceCalcSec def:12[s] timeslice for each calculation [s]
+
+	@param dbkey-int [CHARGE_CONTROL]Id/X/DischargeBlockTimeSec def: 60[s] skip short discharge bursts
+	@param dbkey-int [CHARGE_CONTROL]Id/X/ChargePowerOffset def: 0[W] offset power for the calculation, move the zero point of power balance
+	@param dbkey-int [CHARGE_CONTROL]Id/X/ChargeTol def: 10[W] don't set new charge value if the running one is nearby
+
+	@param dbkey-int [CHARGE_CONTROL]Id/X/DischargeBlockHourStart def:-1 [0..23] start interval hour of day to block discharging
+	@param dbkey-int [CHARGE_CONTROL]Id/X/DischargeBlockHourStop def:-1  [0..23] stop interval hour of day to block discharging
 
 	"""
 	def cfg(self,ini):
@@ -569,7 +595,35 @@ class CChargeCtrlBase():
 		if _enabled >0:
 			self.enabled = True
 		self.ts_calc_cfg = ini.get_int('CHARGE_CONTROL',kpfx('TimeSliceCalcSec'),self.ts_calc_cfg)
+
+		self.discharge_block_tmo_cfg = ini.get_int('CHARGE_CONTROL',kpfx('DischargeBlockTimeSec'),CChargeCtrlSimple.DEF_BLOCK_TIME_DISCHARGE)
+		self.charge_pow_offset = ini.get_int('CHARGE_CONTROL',kpfx('ChargePowerOffset'),self.charge_pow_offset)
+		self.charge_pow_tol = ini.get_int('CHARGE_CONTROL',kpfx('ChargeTol'),self.charge_pow_tol)
+		self.lst_discharge_block_hour[0] = ini.get_int('CHARGE_CONTROL',kpfx('DischargeBlockHourStart'),-1) # invalidate as default
+		self.lst_discharge_block_hour[1] = ini.get_int('CHARGE_CONTROL',kpfx('DischargeBlockHourStop'),-1) # invalidate as default
 		return
+
+	# @return True if discharging is blocked
+	def discharge_blocking_state(self):
+		tb = self.lst_discharge_block_hour[0]
+		te = self.lst_discharge_block_hour[1]
+		if (tb >= 0) and (te >= tb) and (tb < 24) and (te < 24):
+			now =  datetime.now()
+			if (tb >= now.hour) and (te <= now.hour):
+				lg.info('CC discharge block interval:[{}-{}] h:{}'.format(tb,te,now.hour))
+				return True
+		else:
+			tdiff = CChargeCtrlBase.get_time_diff_sec(self.t_last_charge)
+			if tdiff <= self.discharge_block_tmo_cfg:
+				lg.info('CC discharge block time tmo:{}[s]'.format(tdiff))
+				return True
+		return False
+
+	# set the calculated power
+	def calc_power_set(val_pow : int):
+		self.calc_pow = val_pow
+		if val_pow >0:
+			self.t_last_charge = datetime.now()
 
 
 	# calculate new power value to set, overwrite it !
@@ -609,14 +663,11 @@ class CChargeCtrlBase():
 
 	# new power value from grid:
 	# payload: try to parse a simple value in [W]
-	# @todo add a simple json parser
 	def cb_mqtt_sub_power(self,mqttc,user_data,mqtt_msg):
 		try:
 			self.grid_pow = int(mqtt_msg.payload)
 			self.tmo_grid_sec = CChargeCtrlBase.DEF_GRID_TMO_SEC
 			self.on_cb_grid_power(self.grid_pow)
-			if self.enabled is True:
-				self.new_grid_power_value = True
 		except ValueError:
 			pass
 
@@ -634,7 +685,7 @@ class CChargeCtrlBase():
 		return
 
 
-""" @todo
+"""
 BIC control and regulation class
 - simple one charge and discharge depends on power grid value
 """
@@ -644,16 +695,10 @@ class CChargeCtrlSimple(CChargeCtrlBase):
 
 	def __init__(self,dev_bic : CBicDevBase):
 		super().__init__(dev_bic)
-		self.avg_pow = CMAvg(3600*1000) #average calculation , store values for on hour
-		self.charge_pow_offset = 0 # [W] offset power for the calculation, move the zero point of power balance
-		self.charge_pow_tol = 10 # [W] don't set new charge value if the running one is nearby
-		self.discharge_block_tmo_cfg = CChargeCtrlSimple.DEF_BLOCK_TIME_DISCHARGE
-		self.t_last_charge = datetime.now()
+		self.cfg_loop_gain = 0.5 # regulator loop gain for new values
+
 
 	""" Charge Control Simple:
-		@param dbkey-int [CHARGE_CONTROL]Id/X/DischargeBlockTimeSec def: 60[s] skip short discharge bursts
-		@param dbkey-int [CHARGE_CONTROL]Id/X/ChargePowerOffset def: 0[W] offset power for the calculation, move the zero point of power balance
-		@param dbkey-int [CHARGE_CONTROL]Id/X/ChargeTol def: 10[W] don't set new charge value if the running one is nearby
 	"""
 	def cfg(self,ini):
 
@@ -661,9 +706,7 @@ class CChargeCtrlSimple(CChargeCtrlBase):
 			return "Id/{}/{}".format(self.id,str_tail)
 
 		super().cfg(ini)
-		self.discharge_block_tmo_cfg = ini.get_int('CHARGE_CONTROL',kpfx('DischargeBlockTimeSec'),CChargeCtrlSimple.DEF_BLOCK_TIME_DISCHARGE)
-		self.charge_pow_offset = ini.get_int('CHARGE_CONTROL',kpfx('ChargePowerOffset'),self.charge_pow_offset)
-		self.charge_pow_tol = ini.get_int('CHARGE_CONTROL',kpfx('ChargeTol'),self.charge_pow_tol)
+		self.cfg_loop_gain = round(ini.get_float('CHARGE_CONTROL',kpfx('LoopGain'),self.cfg_loop_gain),1)
 
 	""" received a new value from the grid power sensor
 		power value: >0 receive power from the public-grid
@@ -695,20 +738,14 @@ class CChargeCtrlSimple(CChargeCtrlBase):
 		if is_running is False:
 			return
 
-		# @return the time diff in seconds for the given time and now
-		def get_time_diff_sec(t_past):
-			now =  datetime.now()
-			diff = now - t_past
-			return diff.seconds
-
 		charge_pow = self.dev_bic.charge['chargeP']
 		grid_pow = self.avg_pow.avg_get(1*1000*60,-1) + self.charge_pow_offset # used avg grid power with offset
 
-		LOOP_GAIN = 0.5
 		POW_LIMIT = 800
 
-		new_calc_pow = math_round_up(charge_pow  + (grid_pow * LOOP_GAIN * (-1)))
+		new_calc_pow = math_round_up(charge_pow  + (grid_pow * self.cfg_loop_gain * (-1)))
 
+		""" testcode simple linear control
 		#pdiff = round(grid_pow - self.calc_pow,-1)
 		if grid_pow >=0:
 			sign = -1
@@ -729,6 +766,7 @@ class CChargeCtrlSimple(CChargeCtrlBase):
 			new_calc_pow = self.calc_pow + (200 * sign)
 
 		#print("diff:" + str(agp) + ' cp:' + str(new_calc_pow) + ' sign:' + str(sign))
+		"""
 
 		if new_calc_pow > 0 and new_calc_pow > POW_LIMIT:
 			new_calc_pow = POW_LIMIT
@@ -736,13 +774,16 @@ class CChargeCtrlSimple(CChargeCtrlBase):
 			new_calc_pow = -POW_LIMIT
 
 		# check and skip short discharge burst e.g. use the grid power for the tee-kettle
-		if new_calc_pow >0:
-			self.t_last_charge = datetime.now()
-		elif new_calc_pow <0:
+		
+		if new_calc_pow <0:
 			tdiff = get_time_diff_sec(self.t_last_charge)
 			if tdiff <= self.discharge_block_tmo_cfg:
 				lg.info('CC discharge block  time now:{}[W] calc:{}[W] tmo:{}[s]'.format(charge_pow,new_calc_pow,tdiff))
 				new_calc_pow = 0
+			else:
+				if self.discharge_blocking_state() is True:
+					new_calc_pow = 0
+
 
 		if abs(int(self.calc_pow - new_calc_pow)) > self.charge_pow_tol:
 			lg.info('CC set new value: grid:{} now:{}[W] calc:{}[W] ofs:{}[W]'.format(grid_pow,charge_pow,new_calc_pow,self.charge_pow_offset))
@@ -753,13 +794,13 @@ class CChargeCtrlSimple(CChargeCtrlBase):
 			global mqttc
 			mqttc.publish(topic,json.dumps(dpl, sort_keys=False, indent=0),0,False) # no retain
 
-		self.calc_pow = new_calc_pow
+		self.calc_power_set(new_calc_pow)
+		return
 
 
 	def poll(self,timeslice_ms):
 		super().poll(timeslice_ms)
-		if self.ts_calc_sec == 5 and self.new_grid_power_value is True:
-			self.new_grid_power_value = False
+
 
 class App:
 	ts_1000ms=0 # [ms]
@@ -823,7 +864,7 @@ class App:
 
 	""" set charging parameter
 		@topic-sub <main-app>/inv/<id>/charge/set {"var":[chargeA,chargeP],"val":[ampere or power]}
-		@topic-sub <main-app>/inv/<id>/control/set [0,1] start stop charge-control @todo   
+		@topic-sub <main-app>/inv/<id>/control/set [0,1] start stop charge-control
 	"""
 	def cb_mqtt_sub_event(self,mqttc,user_data,mqtt_msg):
 		#print('on subsc:' + mqtt_msg.pp())

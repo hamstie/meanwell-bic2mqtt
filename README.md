@@ -89,17 +89,29 @@ Configuration File: bic2mqtt.ini
 
 ## Section [BAT_0]
 
- - under construction
+ - create a SOC list of the battery device to convert voltage to percent
+
+|key                          | default value  | description   |
+|-----------------------------|----------------|-------------- |
+|Cap2V/X                      |                | Capacity to Voltage Value to create a SOC list of the bat device e.g Cap2V/45=20 means cap45% is 20V SO Volatge |
+
+ Cap2V/0     =19.00
 
 ## Section [CHARGE_CONTROL]
 
 To control charging and discharging with this app. 
 
-|key                         | default value           | description   |
-|----------------------------|-------------------------|-------------- |
+|key                          | default value           | description   |
+|-----------------------------|-------------------------|-------------- |
 |Id/X/Enable                  | def:1                   | >0 local charge control is enabled |
-|Id/X/TopicPower             | ""                       | subscribe topic for grid power values from the smart meter  <0:power to public-grid, >0 power-consumption from public.grid|
-|Id/X/TimeSliceCalcSec       | def:12 [s]               | time slice for each calculation loop |
+|Id/X/TopicPower              | ""                      | subscribe topic for grid power values from the smart meter  <0:power to public-grid, >0 power-consumption from public.grid|
+|Id/X/TimeSliceCalcSec        | def:12 [s]              | time slice for each calculation loop (not used yet)       |
+|Id/X/DischargeBlockHourStart | def:-1 [h]              | [0..23] start interval hour of day to block discharging   |
+|Id/X/DischargeBlockHourStop  | def:-1 [h]              | [0..23] stop interval hour of day to block discharging    |
+|Id/X/DischargeBlockTimeSec   | def: 60[s]              | skip short discharge bursts                               |
+|Id/X/ChargePowerOffset       | def: 0[W]               | offset grid power for the calculation, move the zero point of power balance |
+|Id/X/ChargeTol               | def: 10[W]              | don't set new charge value if the running one is nearby   |
+|Id/0/LoopGain                | def:0.5                 | regulator loop gain (only for the simple charger )        |
 
 --------
 
