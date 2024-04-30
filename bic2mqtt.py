@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
-APP_VER = "0.25"
+APP_VER = "0.30"
 APP_NAME = "bic2mqtt"
 
 """
- fst:05.04.2024 lst:29.04.2024
+ fst:05.04.2024 lst:30.04.2024
  Meanwell BIC2200-XXCAN to mqtt bridge
- V0.22 ..charge control testing
+ V0.30 -charge control works
+ V0.22 -charge control testing
  V0.10 charge and discharging is possible for device BIC2200-24-CAN
  V0.04 cbic2200 first tests
  V0.01 mqtt is running
  V0.00 No fuction yet, working on the app-frame
 
- @todo: check what happened if the broker is unreachable
+ @todo: P1:check what happened if the broker is unreachable
+	P2:op-mode 0->1 set charge to 0
+	P2:op-mode -1 (toggle) op-mode, usefull for mqtt toggle-button
 
  - EEPROM Write is possible since datecode:2402..
 """
@@ -317,7 +320,7 @@ class CBicDevBase():
 		@param dbkey-int [DEVICE]Id/X/DischargeVoltage def:2520 volt*100
 		@param dbkey-int [DEVICE]Id/X/MaxChargeCurrent def:3500 volt*100
 		@param dbkey-int [DEVICE]Id/X/MaxDischargeCurrent def:2600 volt*100
-		@topic-sub <main-app>/inv/<id>/state/set [1,0] inverter operating mode @todo
+		@topic-sub <main-app>/inv/<id>/state/set [1,0] inverter operating mode
 	"""
 	def cfg(self,ini):
 		lg.info('cfg id:' + str(self.id))
@@ -528,8 +531,8 @@ class CChargeCtrlBase():
 	@staticmethod
 	def sign(x):
 		if x >= 0:
-        		return 1
-        	return -1
+			return 1
+		return -1
 
 
 	def __str__(self):
@@ -573,8 +576,14 @@ class CChargeCtrlBase():
 	def calc_power(self,grid_pow):
 		if self.dev_bic.onl_mode <= CBicDevBase.e_onl_mode_idle:
 			return False
-		
+
 		return True
+
+	def enable(self,enable):
+		self.enabled=enable
+		lg.info('CC charge control enable:' +str(enable))
+		self.dev_bic.charge_set_idle() # reset to lowest charge value
+		self.calc_pow = 0
 
 	def poll(self,timeslice_ms):
 
@@ -670,7 +679,7 @@ class CChargeCtrlSimple(CChargeCtrlBase):
 		#lg.info('CC new grid power value {} [W]'.format(self.grid_pow))
 		self.avg_pow.push_val(pow_val)
 
-		lg.info('CC pow val:{}[W] avg-pow[W]: 1m:{} 2m:{} 5m:{} 1h:{} off:{}[W]'.format(pow_val,avg2min(1),avg2min(2),avg2min(5),avg2min(60),self.charge_pow_offset))
+		lg.info('CC GRID POW:{}[W] AVG:1m:{} 2m:{} 5m:{} 1h:{} offs:{}[W]'.format(pow_val,avg2min(1),avg2min(2),avg2min(5),avg2min(60),self.charge_pow_offset))
 		if self.enabled is True:
 			self.calc_power(pow_val)
 
@@ -698,8 +707,7 @@ class CChargeCtrlSimple(CChargeCtrlBase):
 		LOOP_GAIN = 0.5
 		POW_LIMIT = 800
 
-		#new_calc_pow = math_round_up(charge_pow  + (grid_pow * LOOP_GAIN * (-1)))
-		#grid_pow_2min = 
+		new_calc_pow = math_round_up(charge_pow  + (grid_pow * LOOP_GAIN * (-1)))
 
 		#pdiff = round(grid_pow - self.calc_pow,-1)
 		if grid_pow >=0:
@@ -720,8 +728,7 @@ class CChargeCtrlSimple(CChargeCtrlBase):
 		else:
 			new_calc_pow = self.calc_pow + (200 * sign)
 
-
-		print("diff:" + str(agp) + ' cp:' + str(new_calc_pow) + ' sign:' + str(sign))
+		#print("diff:" + str(agp) + ' cp:' + str(new_calc_pow) + ' sign:' + str(sign))
 
 		if new_calc_pow > 0 and new_calc_pow > POW_LIMIT:
 			new_calc_pow = POW_LIMIT
@@ -734,11 +741,11 @@ class CChargeCtrlSimple(CChargeCtrlBase):
 		elif new_calc_pow <0:
 			tdiff = get_time_diff_sec(self.t_last_charge)
 			if tdiff <= self.discharge_block_tmo_cfg:
-				lg.info('cc discharge block  time now:{}[W] calc:{}[W] tmo:{}[s]'.format(charge_pow,new_calc_pow,tdiff))
+				lg.info('CC discharge block  time now:{}[W] calc:{}[W] tmo:{}[s]'.format(charge_pow,new_calc_pow,tdiff))
 				new_calc_pow = 0
 
-		if True: # abs(int(self.calc_pow - new_calc_pow)) > self.charge_pow_tol:
-			lg.info('cc set new value: grid:{} now:{}[W] calc:{}[W] ofs:{}[W]'.format(grid_pow,charge_pow,new_calc_pow,self.charge_pow_offset))
+		if abs(int(self.calc_pow - new_calc_pow)) > self.charge_pow_tol:
+			lg.info('CC set new value: grid:{} now:{}[W] calc:{}[W] ofs:{}[W]'.format(grid_pow,charge_pow,new_calc_pow,self.charge_pow_offset))
 			topic = self.dev_bic.top_inv + '/charge/set'
 			dpl = {"var":"chargeP"}
 			dpl['val'] = int(new_calc_pow)
@@ -790,6 +797,13 @@ class App:
 			dev.cfg(ini)
 			self.dev_bic[id] = dev
 			if len(self.dev_bic) >0:
+				lst_sub = ['charge/set','state/set','control/set']
+				for sub in lst_sub:
+					msg = CMQTT.CMSG(dev.top_inv + "/" + sub,"dummypl")
+					msg.cb = self.cb_mqtt_sub_event
+					msg.cb_user_data = dev
+					mqttc.append_subscribe(msg)
+				"""
 				msg = CMQTT.CMSG(dev.top_inv + "/charge/set","dummypl")
 				msg.cb = self.cb_mqtt_sub_event
 				msg.cb_user_data = dev
@@ -798,13 +812,18 @@ class App:
 				msg.cb = self.cb_mqtt_sub_event
 				msg.cb_user_data = dev
 				mqttc.append_subscribe(msg)
-
+				msg = CMQTT.CMSG(dev.top_inv + "/control/set","dummypl")
+				msg.cb = self.cb_mqtt_sub_event
+				msg.cb_user_data = dev
+				mqttc.append_subscribe(msg)
+				"""
 			dev.cc = CChargeCtrlSimple(dev)
 			dev.cc.cfg(ini)
 
 
 	""" set charging parameter
 		@topic-sub <main-app>/inv/<id>/charge/set {"var":[chargeA,chargeP],"val":[ampere or power]}
+		@topic-sub <main-app>/inv/<id>/control/set [0,1] start stop charge-control @todo   
 	"""
 	def cb_mqtt_sub_event(self,mqttc,user_data,mqtt_msg):
 		#print('on subsc:' + mqtt_msg.pp())
@@ -821,16 +840,23 @@ class App:
 				pass
 		elif dev.top_inv + "/state/set" == mqtt_msg.topic:
 			if mqtt_msg.payload == '1':
-				dev.op_mode = dev.bic.operation(1)
+				dev.op_mode = dev.bic.operation(1) # on
+			elif mqtt_msg.payload == '2':
+				dev.op_mode = dev.bic.operation(2) # toggle
 			else:
-				dev.charge_set_amp(0)
 				dev.op_mode = dev.bic.operation(0)
 			dev.state['opMode'] = dev.op_mode
 			lg.info('set operation mode:' + str(dev.op_mode))
 			if dev.op_mode > 0:
 				dev.onl_mode = CBicDevBase.e_onl_mode_running
-			else:	
+			else:
 				dev.onl_mode = CBicDevBase.e_onl_mode_idle
+				dev.charge_set_idle()	# off
+		elif dev.top_inv + "/control/set" == mqtt_msg.topic:
+			if mqtt_msg.payload == '1':
+				dev.cc.enable(True)
+			else:
+				dev.cc.enable(False)
 
 	def start(self):
 		if self.started is False:

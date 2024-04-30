@@ -37,8 +37,9 @@ VER = "0.2.74"
 #       - return list of fault-bits for sttus processing
 #       + dump()
 #       - init_mode try to disable parameter eeprom write mode
-# hamstie 28.04.2024 Version 0.2.74
+# hamstie 29.04.2024 Version 0.2.74
 #       + can_send_receive word(), skip useless eeprom writes and check the value with write read sequence
+#       - toggle-operation
 
 import os
 import can
@@ -300,9 +301,16 @@ class CBic:
 
     # Operation function
     # @return read value from bic
-    def operation(self,val):#0=off, 1=on
+    def operation(self,val):#0=off, 1=on, 2=toggle
         # print ("turn output on/off")
-        # Command Code 0x0000
+        # Command Code 0x0000  e_cmd_OPERATION
+
+        if val == 2:
+            val = self.operation_read()
+            val = not val 
+        else:        
+            val = val & 0x01
+        
         commandhighbyte = 0x00
         commandlowbyte = 0x00
         self.can_send_msg([commandlowbyte, commandhighbyte,val])
