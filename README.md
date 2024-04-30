@@ -111,14 +111,15 @@ To control charging and discharging with this app.
 
 |pub/sub   | topic                   | payload     | description   |
 |----------|-------------------------|-------------|-------------- |
-|pub | "<main-app>/inv/<id>info      |             | json inverter hardware info, eg. version
-|pub | \<main-app>/inv/<id>state       |             | json inverter states
-|sub | \<main-app>/inv/<id>state/set   | [0,1]       | set inverter operating mode 1:on else off
-|pub | \<main-app>/inv/<id>charge      |             | 
-|pub | \<main-app>/inv/<id>fault       |             | json fault states of the inverter
-|sub | \<main-app>/inv/<id>charge/set  | {"var":[chargeA,chargeP],"val":[ampere or power]} |
+|pub | "<main-app>/inv/\<id>/info      |             | json inverter hardware info, eg. version
+|pub | \<main-app>/inv/\<id>/state       |             | json inverter states
+|sub | \<main-app>/inv/\<id>/state/set   | [0,1]       | set inverter operating mode 1:on else off
+|pub | \<main-app>/inv/\<id>/charge      |             | 
+|pub | \<main-app>/inv/\<id>/fault       |             | json fault states of the inverter
+|sub | \<main-app>/inv/\<id>/charge/set  | {"var":[chargeA,chargeP],"val":[ampere or power]} |
 |pub | \<main-app>/sys/state/lwt       | [offline,running] | mqtt last will |
 |sub | ini file: [CHARGE_CONTROL]Id/X/TopicPower | value [W] | Charge control: incoming grid power values as a raw value [W]|
+|sub | \<main-app>/inv/\<id>/control/set |  [0,1]    |  start stop charge-control, charging will be stoped on each toggle |
 
         
 # Examples        
