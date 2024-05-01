@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-APP_VER = "0.31"
+APP_VER = "0.32"
 APP_NAME = "bic2mqtt"
 
 """
- fst:05.04.2024 lst:30.04.2024
+ fst:05.04.2024 lst:01.05.2024
  Meanwell BIC2200-XXCAN to mqtt bridge
+ V0.32 -bugfixing
  V0.31 -cleaning charger code
 		- op-mode 0->1 set charge to 0
 		+ discharge block interval
@@ -605,22 +606,24 @@ class CChargeCtrlBase():
 
 	# @return True if discharging is blocked
 	def discharge_blocking_state(self):
+		ret = False
 		tb = self.lst_discharge_block_hour[0]
 		te = self.lst_discharge_block_hour[1]
 		if (tb >= 0) and (te >= tb) and (tb < 24) and (te < 24):
 			now =  datetime.now()
-			if (tb >= now.hour) and (te <= now.hour):
+			if (now.hour >= tb) and (now.hour <= te):
+				#print('h:' + str(now.hour))
 				lg.info('CC discharge block interval:[{}-{}] h:{}'.format(tb,te,now.hour))
-				return True
-		else:
-			tdiff = CChargeCtrlBase.get_time_diff_sec(self.t_last_charge)
-			if tdiff <= self.discharge_block_tmo_cfg:
-				lg.info('CC discharge block time tmo:{}[s]'.format(tdiff))
-				return True
-		return False
+				ret = True
+		
+		tdiff = CChargeCtrlBase.get_time_diff_sec(self.t_last_charge)
+		if tdiff <= self.discharge_block_tmo_cfg:
+			lg.info('CC discharge block time tmo:{}[s]'.format(tdiff))
+			ret = True
+		return ret
 
 	# set the calculated power
-	def calc_power_set(val_pow : int):
+	def calc_power_set(self,val_pow : int):
 		self.calc_pow = val_pow
 		if val_pow >0:
 			self.t_last_charge = datetime.now()
@@ -775,14 +778,9 @@ class CChargeCtrlSimple(CChargeCtrlBase):
 
 		# check and skip short discharge burst e.g. use the grid power for the tee-kettle
 		
-		if new_calc_pow <0:
-			tdiff = get_time_diff_sec(self.t_last_charge)
-			if tdiff <= self.discharge_block_tmo_cfg:
-				lg.info('CC discharge block  time now:{}[W] calc:{}[W] tmo:{}[s]'.format(charge_pow,new_calc_pow,tdiff))
+		if new_calc_pow < 0:
+			if self.discharge_blocking_state() is True:
 				new_calc_pow = 0
-			else:
-				if self.discharge_blocking_state() is True:
-					new_calc_pow = 0
 
 
 		if abs(int(self.calc_pow - new_calc_pow)) > self.charge_pow_tol:
