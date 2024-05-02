@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-APP_VER = "0.33"
+APP_VER = "0.40"
 APP_NAME = "bic2mqtt"
 
 """
- fst:05.04.2024 lst:01.05.2024
+ fst:05.04.2024 lst:02.05.2024
  Meanwell BIC2200-XXCAN to mqtt bridge
- V0.33 -refresh info every hour 
+ V0.40 ..pid-charge control
+ V0.33 -refresh info every hour
  V0.32 -bugfixing
  V0.31 -cleaning charger code
 		- op-mode 0->1 set charge to 0
@@ -523,13 +524,51 @@ class CBicDev2200_24(CBicDevBase):
 
 
 
+# device type 2200-24V CAN
+class CBicDev2200_24(CBicDevBase):
+
+	def __init__(self,id : int):
+		super().__init__(id,"BIC2200-24CAN")
+		self.can_bit_rate = 250000 # canbus bit-rate
+		self.can_adr = 0x000C0300 # can address
+
+		self.system_voltage = 24 # needed for power calculation
+		self.cfg_vcharge100 = 2750
+		self.cfg_vdischarge100 = 2520
+		self.cfg_max_charge100 = 1000  # 10[A]
+		self.cfg_max_cdischarge100 = 1500 # 15[A]
+
+
+
+	# special config
+	# @param dbkey-int [DEVICE]Id/X/CanBitrate def:250000
+	def cfg(self,ini):
+		def kpfx(str_tail : str):
+			return "Id/{}/{}".format(self.id,str_tail)
+
+		super().cfg(ini)
+		if self.id >=0:
+			self.can_bit_rate = ini.get_int('DEVICE',kpfx("CanBitrate"),250000)
+			return 0
+		else:
+			return -1
+
+	def start(self):
+		super().start()
+
+
+	def poll(self,timeslive_ms):
+		super().poll(timeslive_ms)
+
+
 """
 BIC control and regulation class
 - control the bic charge and discharge function
 """
 class CChargeCtrlBase():
 
-	DEF_GRID_TMO_SEC = 18 # seconds to switch off bic-dev if we get no new gid-power values
+	DEF_GRID_TMO_SEC = 120 # seconds to switch off bic-dev if we get no new gid-power values
+	DEF_BLOCK_TIME_DISCHARGE = 60
 
 	def __init__(self,dev_bic : CBicDevBase):
 		self.enabled = False # enabled
@@ -546,7 +585,7 @@ class CChargeCtrlBase():
 		self.avg_pow = CMAvg(3600*1000) #average calculation , store values for on hour
 		self.charge_pow_offset = 0 # [W] offset power for the calculation, move the zero point of power balance
 		self.charge_pow_tol = 10 # [W] don't set new charge value if the running one is nearby
-		self.discharge_block_tmo_cfg = CChargeCtrlSimple.DEF_BLOCK_TIME_DISCHARGE
+		self.discharge_block_tmo_cfg = CChargeCtrlBase.DEF_BLOCK_TIME_DISCHARGE
 		self.t_last_charge = datetime.now()
 
 		self.lst_discharge_block_hour = [-1,-1] # between this two hours , block discharging
@@ -605,7 +644,7 @@ class CChargeCtrlBase():
 			self.enabled = True
 		self.ts_calc_cfg = ini.get_int('CHARGE_CONTROL',kpfx('TimeSliceCalcSec'),self.ts_calc_cfg)
 
-		self.discharge_block_tmo_cfg = ini.get_int('CHARGE_CONTROL',kpfx('DischargeBlockTimeSec'),CChargeCtrlSimple.DEF_BLOCK_TIME_DISCHARGE)
+		self.discharge_block_tmo_cfg = ini.get_int('CHARGE_CONTROL',kpfx('DischargeBlockTimeSec'),CChargeCtrlBase.DEF_BLOCK_TIME_DISCHARGE)
 		self.charge_pow_offset = ini.get_int('CHARGE_CONTROL',kpfx('ChargePowerOffset'),self.charge_pow_offset)
 		self.charge_pow_tol = ini.get_int('CHARGE_CONTROL',kpfx('ChargeTol'),self.charge_pow_tol)
 		self.lst_discharge_block_hour[0] = ini.get_int('CHARGE_CONTROL',kpfx('DischargeBlockHourStart'),-1) # invalidate as default
@@ -623,7 +662,7 @@ class CChargeCtrlBase():
 				#print('h:' + str(now.hour))
 				lg.info('CC discharge block interval:[{}-{}] h:{}'.format(tb,te,now.hour))
 				ret = True
-		
+
 		tdiff = CChargeCtrlBase.get_time_diff_sec(self.t_last_charge)
 		if tdiff <= self.discharge_block_tmo_cfg:
 			lg.info('CC discharge block time tmo:{}[s]'.format(tdiff))
@@ -701,8 +740,6 @@ BIC control and regulation class
 - simple one charge and discharge depends on power grid value
 """
 class CChargeCtrlSimple(CChargeCtrlBase):
-
-	DEF_BLOCK_TIME_DISCHARGE = 60
 
 	def __init__(self,dev_bic : CBicDevBase):
 		super().__init__(dev_bic)
@@ -785,7 +822,7 @@ class CChargeCtrlSimple(CChargeCtrlBase):
 			new_calc_pow = -POW_LIMIT
 
 		# check and skip short discharge burst e.g. use the grid power for the tee-kettle
-		
+
 		if new_calc_pow < 0:
 			if self.discharge_blocking_state() is True:
 				new_calc_pow = 0
@@ -810,11 +847,172 @@ class CChargeCtrlSimple(CChargeCtrlBase):
 		super().poll(timeslice_ms)
 
 
+# simple pid regulator
+class CPID :
+
+	def __init__(self):
+		self.cfg_dt  = 1 	# time-between steps
+		self.cfg_offset = 0 # const-offset
+		self.cfg_min = 0		# min allow value
+		self.cfg_max = 0		# max allow value
+		self.cfg_kp  = 1		# K-Part gain
+		self.cfg_ki  = 0		# I-Part gain set 0 for simple K-regulator
+		self.cfg_kd  = 0		# D-Part gain set 0 for simple K-regulator
+
+		self.err = 0.0			# last error values step(t-1)
+		self.I_val = 0.0		# I-part Value
+
+
+	# configuration and reset of the pid
+	def cfg(self, dt_sec,offset, vmin, vmax, kp, ki, kd):
+		def rnd(val):
+			return round(val,1)
+
+		self.err = 0.0
+		self.I_val = 0.0
+		self.cfg_dt  = int(dt_sec) 	# time-between steps
+		self.cfg_offset = float(offset) # const-offset
+		self.cfg_min = float(vmin)	# min allow value
+		self.cfg_max = float(vmax)	# max allow value
+		self.cfg_kp  = float(kp)	# K-Part gain
+		self.cfg_ki  = float(ki)	# I-Part gain set 0 for simple K-regulator
+		self.cfg_kd  = float(kd)	# D-Part gain set 0 for simple K-regulator
+		lg.info("pid cfg: P:{} I:{} D:{} offset:{} dt:{}".format(rnd(kp),rnd(ki),rnd(kd),rnd(offset),self.cfg_dt))
+		return
+
+
+	# calculate next pid step after dt
+	def step(self,act_val) :
+
+		def clamp(n, minn, maxn):
+			return max(min(maxn, n), minn)
+
+		_err = self.cfg_offset - act_val
+		P = self.cfg_kp * _err
+
+		self.I_val += _err * self.cfg_dt
+		I = self.cfg_ki * self.I_val
+
+		D = self.cfg_kd * (_err - self.err) / self.cfg_dt
+
+		ret_val = P + I + D
+		ret_val=clamp(ret_val,self.cfg_min,self.cfg_max)
+
+		self.err = _err
+		lg.debug("pid stp v:{} p:{} i:{} d:{} err:{} ret:{}".format(act_val,P,I,D,_err,ret_val))
+		return int(ret_val)
+
+"""
+ BIC control and regulation class
+- pid controlled
+
+"""
+class CChargeCtrlPID(CChargeCtrlBase):
+
+	def __init__(self,dev_bic : CBicDevBase):
+		super().__init__(dev_bic)
+		self.pid = CPID() # pid regulator
+		self.cfg_loop_gain = 0.5 # regulator loop gain for new values
+
+
+	""" Charge Control Simple:
+		@param dbkey-int [CHARGE_CONTROL]Id/X/Pid/ClockSec def:0
+		@param dbkey-int [CHARGE_CONTROL]Id/X/Pid/Min def:0
+		@param dbkey-int [CHARGE_CONTROL]Id/X/Pid/Max def:0
+		@param dbkey-float [CHARGE_CONTROL]Id/X/Pid/P def:1
+		@param dbkey-float [CHARGE_CONTROL]Id/X/Pid/I def:0
+		@param dbkey-float [CHARGE_CONTROL]Id/X/Pid/D def:0
+		"""
+	def cfg(self,ini):
+
+		def kpfx(str_tail : str):
+			return "Id/{}/{}".format(self.id,str_tail)
+
+		super().cfg(ini)
+		self.pid.cfg(
+			ini.get_int('CHARGE_CONTROL',kpfx('Pid/ClockSec'),1),
+			self.charge_power_offset,
+			ini.get_int('CHARGE_CONTROL',kpfx('Pid/Min'),0),
+			ini.get_int('CHARGE_CONTROL',kpfx('Pid/Max'),0),
+			ini.get_float('CHARGE_CONTROL',kpfx('Pid/P'),1),
+			ini.get_float('CHARGE_CONTROL',kpfx('Pid/I'),0),
+			ini.get_float('CHARGE_CONTROL',kpfx('Pid/D'),0)
+		)
+		return
+
+	""" received a new value from the grid power sensor
+		power value: >0 receive power from the public-grid
+		power value: <0 inject power to the public-grid
+		usefull functions for the future:
+		- haus/kel/pgrid/pnow
+	"""
+	def on_cb_grid_power(self,pow_val):
+		def avg2min(minute : int):
+			return self.avg_pow.avg_get(minute*60*1000,-1)
+
+		self.tmo_grid_sec = CChargeCtrlBase.DEF_GRID_TMO_SEC
+		#lg.info('CC new grid power value {} [W]'.format(self.grid_pow))
+		self.avg_pow.push_val(pow_val)
+
+		lg.info('CC GRID POW:{}[W] AVG:1m:{} 2m:{} 5m:{} 1h:{} offs:{}[W]'.format(pow_val,avg2min(1),avg2min(2),avg2min(5),avg2min(60),self.charge_pow_offset))
+		if self.enabled is True:
+			self.calc_power(pow_val)
+
+
+
+	""" charge discharge control via PID
+		- discharge block time, skip fast charge, discharge toggle
+		- discharge only over night if configured
+		PID Settings:
+
+	"""
+	def calc_power(self,grid_pow):
+
+		is_running = super().calc_power(grid_pow)
+		if is_running is False:
+			return
+
+		charge_pow = self.dev_bic.charge['chargeP'] # charge power of the bat from real voltage and current of the bic
+		grid_pow = self.avg_pow.avg_get(1*1000*60,-1) + self.charge_pow_offset # used avg grid power with offset
+
+		new_calc_pow = self.pid.step(grid_pow)
+
+		# check and skip short discharge burst e.g. use the grid power for the tee-kettle
+
+		if new_calc_pow < 0:
+			if self.discharge_blocking_state() is True:
+				new_calc_pow = 0
+
+		if abs(int(charge_pow - new_calc_pow)) > self.charge_pow_tol:
+			lg.info('CC set new value: grid:{} now:{}[W] calc:{}[W] ofs:{}[W]'.format(grid_pow,charge_pow,new_calc_pow,self.charge_pow_offset))
+			topic = self.dev_bic.top_inv + '/charge/set'
+			dpl = {"var":"chargeP"}
+			dpl['val'] = int(new_calc_pow)
+			#print("top:{} pl:{}".format(topic,str(dpl)))
+			global mqttc
+			mqttc.publish(topic,json.dumps(dpl, sort_keys=False, indent=0),0,False) # no retain
+		else:
+			lg.info('CC const value: grid:{} now:{}[W] calc:{}[W] ofs:{}[W]'.format(grid_pow,charge_pow,new_calc_pow,self.charge_pow_offset))
+
+		self.calc_power_set(new_calc_pow)
+		return
+
+
+	def poll(self,timeslice_ms):
+		super().poll(timeslice_ms)
+
+
+"""
+Main App
+ - poll some objects in a timeslice
+ - receive subscribed toppics
+ - publish some charge infos from the inverter device
+"""
 class App:
 	ts_1000ms=0 # [ms]
 	ts_6sec=0   # [s]
 	ts_1min=0   # [s]
-	uptime_min=0 
+	uptime_min=0
 
 	def __init__(self,cmqtt):
 		self.cmqtt = cmqtt
