@@ -851,7 +851,7 @@ class CChargeCtrlSimple(CChargeCtrlBase):
 class CPID :
 
 	def __init__(self):
-		self.cfg_dt  = 1 	# time-between steps
+		self.cfg_dt  = 0 	# force time-between steps else it will be messured 
 		self.cfg_offset = 0 # const-offset
 		self.cfg_min = 0		# min allow value
 		self.cfg_max = 0		# max allow value
@@ -861,16 +861,21 @@ class CPID :
 
 		self.err = 0.0			# last error values step(t-1)
 		self.I_val = 0.0		# I-part Value
-
+		self.t_step = datetime.now()
+		self.cnt_steps=0
 
 	# configuration and reset of the pid
 	def cfg(self, dt_sec,offset, vmin, vmax, kp, ki, kd):
 		def rnd(val):
 			return round(val,1)
 
+		# reset running values
 		self.err = 0.0
 		self.I_val = 0.0
-		self.cfg_dt  = int(dt_sec) 	# time-between steps
+		self.t_step = datetime.now() # step calculation for cfg_dt
+		self.cnt_step = 0
+
+		self.cfg_dt  = int(dt_sec) 	# >0 force this time-between steps 
 		self.cfg_offset = float(offset) # const-offset
 		self.cfg_min = float(vmin)	# min allow value
 		self.cfg_max = float(vmax)	# max allow value
@@ -881,25 +886,46 @@ class CPID :
 		return
 
 
+
 	# calculate next pid step after dt
 	def step(self,act_val) :
 
-		def clamp(n, minn, maxn):
-			return max(min(maxn, n), minn)
+		def rnd(val):
+			return round(val,1)
+		
+		def clamp(val, minn, maxn):
+			new_val = max(min(maxn, val), minn)
+			if new_val != val:
+				lg.waring("pid reached min/max val:{} new:{}".format(val,new_val))
+			return new_val
+
+		def get_dt(self):
+			if self.cfg_dt >0:
+				_dt = self.cfg_dt
+			else:
+				_dt = CChargeCtrlBase.get_time_diff_sec(self.t_step)
+			return _dt
+		
+		_dt = get_dt()
 
 		_err = self.cfg_offset - act_val
 		P = self.cfg_kp * _err
 
-		self.I_val += _err * self.cfg_dt
+		self.I_val += _err * _dt
 		I = self.cfg_ki * self.I_val
 
-		D = self.cfg_kd * (_err - self.err) / self.cfg_dt
+		if _dt >0:
+			D = self.cfg_kd * (_err - self.err) / _dt
 
 		ret_val = P + I + D
 		ret_val=clamp(ret_val,self.cfg_min,self.cfg_max)
 
 		self.err = _err
-		lg.debug("pid stp v:{} p:{} i:{} d:{} err:{} ret:{}".format(act_val,P,I,D,_err,ret_val))
+		self.cnt_step += 1
+		self.t_step = datetime.now() # dynamic step calculation for _dt
+		lg.debug("pid stp v:{} dt:{}[s] stp:{} p:{} i:{} d:{} err:{} ret:{}[W]".format(
+				act_val,_dt,self.cnt_step,rnd(P),rnd(I),rnd(D),rnd(_err),rnd(ret_val)
+		))
 		return int(ret_val)
 
 """
@@ -916,7 +942,7 @@ class CChargeCtrlPID(CChargeCtrlBase):
 
 
 	""" Charge Control Simple:
-		@param dbkey-int [CHARGE_CONTROL]Id/X/Pid/ClockSec def:0
+		# not used @param dbkey-int [CHARGE_CONTROL]Id/X/Pid/ClockSec def:0
 		@param dbkey-int [CHARGE_CONTROL]Id/X/Pid/Min def:0
 		@param dbkey-int [CHARGE_CONTROL]Id/X/Pid/Max def:0
 		@param dbkey-float [CHARGE_CONTROL]Id/X/Pid/P def:1
@@ -930,7 +956,7 @@ class CChargeCtrlPID(CChargeCtrlBase):
 
 		super().cfg(ini)
 		self.pid.cfg(
-			ini.get_int('CHARGE_CONTROL',kpfx('Pid/ClockSec'),1),
+			ini.get_int('CHARGE_CONTROL',kpfx('Pid/ClockSec'),0), # 0, means messure time between each step
 			self.charge_power_offset,
 			ini.get_int('CHARGE_CONTROL',kpfx('Pid/Min'),0),
 			ini.get_int('CHARGE_CONTROL',kpfx('Pid/Max'),0),
