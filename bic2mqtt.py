@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-APP_VER = "0.32"
+APP_VER = "0.33"
 APP_NAME = "bic2mqtt"
 
 """
  fst:05.04.2024 lst:01.05.2024
  Meanwell BIC2200-XXCAN to mqtt bridge
+ V0.33 -refresh info every hour 
  V0.32 -bugfixing
  V0.31 -cleaning charger code
 		- op-mode 0->1 set charge to 0
@@ -406,6 +407,9 @@ class CBicDevBase():
 		elif App.ts_6sec == 2:
 			pass
 
+		if (App.uptime_min % 60)==0:
+			self.update_info()
+
 		if self.tmo_info_ms >=0:
 			self.tmo_info_ms -= timeslive_ms
 		else:
@@ -434,7 +438,7 @@ class CBicDevBase():
 		if self.onl_mode >= CBicDevBase.e_onl_mode_idle:
 			try:
 				amp100 = int(val_amp * 100)
-				lg.info("set charge value to:{}A  A100({})".format(round(val_amp,2),amp100))
+				lg.info("set charge value to:{}[A]".format(round(val_amp,2)))
 				if amp100 >=0:
 					if amp100 > self.cfg_max_ccharge100:
 						amp100 = self.cfg_max_ccharge100
@@ -552,7 +556,11 @@ class CChargeCtrlBase():
 		if x >= 0:
 			return 1
 		return -1
-	
+
+	@staticmethod
+	def clamp(n, minn, maxn):
+		return max(min(maxn, n), minn)
+
 	# @return the time diff in seconds for the given time and now
 	@staticmethod
 	def get_time_diff_sec(t_past):
@@ -562,7 +570,7 @@ class CChargeCtrlBase():
 
 
 	def __str__(self):
-		ret = "cc-id:{} gp:{}[W] sp:{}[W]".format(self.id,self.grid_pow,self.cal_pow)
+		ret = "CC-id:{} gp:{}[W] sp:{}[W]".format(self.id,self.grid_pow,self.cal_pow)
 		return ret
 
 	"""
@@ -782,8 +790,8 @@ class CChargeCtrlSimple(CChargeCtrlBase):
 			if self.discharge_blocking_state() is True:
 				new_calc_pow = 0
 
-
-		if abs(int(self.calc_pow - new_calc_pow)) > self.charge_pow_tol:
+		print('d:{} tol:{}'.format((charge_pow - new_calc_pow),self.charge_pow_tol))
+		if abs(int(charge_pow - new_calc_pow)) > self.charge_pow_tol:
 			lg.info('CC set new value: grid:{} now:{}[W] calc:{}[W] ofs:{}[W]'.format(grid_pow,charge_pow,new_calc_pow,self.charge_pow_offset))
 			topic = self.dev_bic.top_inv + '/charge/set'
 			dpl = {"var":"chargeP"}
@@ -791,6 +799,8 @@ class CChargeCtrlSimple(CChargeCtrlBase):
 			#print("top:{} pl:{}".format(topic,str(dpl)))
 			global mqttc
 			mqttc.publish(topic,json.dumps(dpl, sort_keys=False, indent=0),0,False) # no retain
+		else:
+			lg.info('CC const value: grid:{} now:{}[W] calc:{}[W] ofs:{}[W]'.format(grid_pow,charge_pow,new_calc_pow,self.charge_pow_offset))
 
 		self.calc_power_set(new_calc_pow)
 		return
@@ -804,6 +814,7 @@ class App:
 	ts_1000ms=0 # [ms]
 	ts_6sec=0   # [s]
 	ts_1min=0   # [s]
+	uptime_min=0 
 
 	def __init__(self,cmqtt):
 		self.cmqtt = cmqtt
@@ -812,7 +823,6 @@ class App:
 		self.t_start =  datetime.now()   # time.localtime()
 		self.info = {}
 		self.started = False
-		self.con_time_min=0
 		self.dev_bic = {} # all bic hardware devices
 		self.bat = CBattery(0)
 
@@ -923,7 +933,7 @@ class App:
 			App.ts_1min+=1
 			if App.ts_1min >59:
 				App.ts_1min=0
-				self.con_time_min+=1
+				App.uptime_min+=1
 				mqttc.publish(MQTT_T_APP,self.json_encode(),0,True)
 
 	def json_encode(self):
@@ -931,7 +941,7 @@ class App:
 		self.info['appName'] = APP_NAME
 		self.info['startTS'] =  self.t_start.strftime('%y%m%d_%H:%M:%S')   #  time.strftime("%y%m%d_%H:%M:%S",self.t_start)
 		self.info['ts'] = datetime.now().strftime('%y%m%d_%H:%M:%S.%f')[:-3]
-		self.info['conTimeMin'] = self.con_time_min
+		self.info['conTimeMin'] = App.uptime_min
 		self.info['conCnt'] = mqttc.conn_cnt
 		return json.dumps(self.info, sort_keys=False, indent=4)
 
