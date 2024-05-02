@@ -1034,6 +1034,10 @@ class CChargeCtrlPID(CChargeCtrlBase):
 	def poll(self,timeslice_ms):
 		super().poll(timeslice_ms)
 
+	def enable(self,enable):
+		self.super().enable(enable)
+		self.pid.cfg() # also a pid-reset
+
 
 """
 Main App
