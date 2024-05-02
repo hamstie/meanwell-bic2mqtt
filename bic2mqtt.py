@@ -892,20 +892,19 @@ class CPID :
 
 		def rnd(val):
 			return round(val,1)
-		
 		def clamp(val, minn, maxn):
 			new_val = max(min(maxn, val), minn)
 			if new_val != val:
-				lg.waring("pid reached min/max val:{} new:{}".format(val,new_val))
+				lg.warning("pid reached min/max val:{} new:{}".format(val,new_val))
 			return new_val
 
-		def get_dt(self):
+		def get_dt():
 			if self.cfg_dt >0:
 				_dt = self.cfg_dt
 			else:
 				_dt = CChargeCtrlBase.get_time_diff_sec(self.t_step)
 			return _dt
-		
+
 		_dt = get_dt()
 
 		_err = self.cfg_offset - act_val
@@ -916,6 +915,8 @@ class CPID :
 
 		if _dt >0:
 			D = self.cfg_kd * (_err - self.err) / _dt
+		else:
+			D = 0
 
 		ret_val = P + I + D
 		ret_val=clamp(ret_val,self.cfg_min,self.cfg_max)
@@ -957,7 +958,7 @@ class CChargeCtrlPID(CChargeCtrlBase):
 		super().cfg(ini)
 		self.pid.cfg(
 			ini.get_int('CHARGE_CONTROL',kpfx('Pid/ClockSec'),0), # 0, means messure time between each step
-			self.charge_power_offset,
+			self.charge_pow_offset,
 			ini.get_int('CHARGE_CONTROL',kpfx('Pid/Min'),0),
 			ini.get_int('CHARGE_CONTROL',kpfx('Pid/Max'),0),
 			ini.get_float('CHARGE_CONTROL',kpfx('Pid/P'),1),
@@ -1090,7 +1091,8 @@ class App:
 				msg.cb_user_data = dev
 				mqttc.append_subscribe(msg)
 				"""
-			dev.cc = CChargeCtrlSimple(dev)
+			#dev.cc = CChargeCtrlSimple(dev)
+			dev.cc = CChargeCtrlPID(dev)
 			dev.cc.cfg(ini)
 
 
