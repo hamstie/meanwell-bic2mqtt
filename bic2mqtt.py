@@ -789,19 +789,13 @@ class CChargeCtrlSimple(CChargeCtrlBase):
 		charge_pow = self.dev_bic.charge['chargeP']
 		grid_pow = self.avg_pow.avg_get(1*1000*60,-1) + self.charge_pow_offset # used avg grid power with offset
 
-		POW_LIMIT = 800
 
 		new_calc_pow = math_round_up(charge_pow  + (grid_pow * self.cfg_loop_gain * (-1)))
 
 		""" testcode simple linear control
 		#pdiff = round(grid_pow - self.calc_pow,-1)
-		if grid_pow >=0:
-			sign = -1
-		else:
-			sign = 1
-
+		sign=CChargeCtrlBase.sign(grid_pow)
 		agp = abs(grid_pow)
-
 		if agp <= self.charge_pow_tol:
 			new_calc_pow = self.calc_pow
 		elif agp <= 100:
@@ -809,17 +803,15 @@ class CChargeCtrlSimple(CChargeCtrlBase):
 		elif agp <= 200:
 			new_calc_pow = self.calc_pow + (20 * sign)
 		elif agp <= 400:
-                        new_calc_pow = self.calc_pow + (100 * sign)
+        	new_calc_pow = self.calc_pow + (100 * sign)
 		else:
 			new_calc_pow = self.calc_pow + (200 * sign)
 
 		#print("diff:" + str(agp) + ' cp:' + str(new_calc_pow) + ' sign:' + str(sign))
 		"""
 
-		if new_calc_pow > 0 and new_calc_pow > POW_LIMIT:
-			new_calc_pow = POW_LIMIT
-		elif new_calc_pow < 0 and abs(new_calc_pow) > POW_LIMIT:
-			new_calc_pow = -POW_LIMIT
+		POW_LIMIT = 800
+		new_cal_pow=CChargeCtrlBase.clamp(new_cal_pow,-POW_LIMIT,POW_LIMIT)
 
 		# check and skip short discharge burst e.g. use the grid power for the tee-kettle
 
@@ -847,7 +839,13 @@ class CChargeCtrlSimple(CChargeCtrlBase):
 		super().poll(timeslice_ms)
 
 
-# simple pid regulator
+""" simple pid regulator
+	Howto setup pid regulator
+	  - kiss (KeepItSimpeAndStupid) use only K(e.g. 0.6) , set I,D to zero
+	  - https://belektronig.de/wp-content/uploads/2023/03/Manuelle-Bestimmung-von-PID-Parametern.pdf
+      - https://www.jumo.de/web/services/faq/controller/pid-controller
+
+"""
 class CPID :
 
 	def __init__(self):
@@ -895,7 +893,8 @@ class CPID :
 		def clamp(val, minn, maxn):
 			new_val = max(min(maxn, val), minn)
 			if new_val != val:
-				lg.warning("pid reached min/max val:{} new:{}".format(val,new_val))
+				#lg.warning("pid reached min/max val:{} new:{}".format(val,new_val))
+				pass
 			return new_val
 
 		def get_dt():
@@ -909,6 +908,13 @@ class CPID :
 
 		_err = self.cfg_offset - act_val
 		P = self.cfg_kp * _err
+
+		# faster I Value reset
+		if  CChargeCtrlBase.sign(act_val) != CChargeCtrlBase.sign(self.I_val):
+			self.I_val=0
+			lg.debug("pid rst I")
+		else:
+			self.I_val = clamp(self.I_val,self.cfg_min / 2, self.cfg_max / 2)
 
 		self.I_val += _err * _dt
 		I = self.cfg_ki * self.I_val
@@ -925,7 +931,7 @@ class CPID :
 		self.cnt_step += 1
 		self.t_step = datetime.now() # dynamic step calculation for _dt
 		lg.debug("pid stp v:{} dt:{}[s] stp:{} p:{} i:{} d:{} err:{} ret:{}[W]".format(
-				act_val,_dt,self.cnt_step,rnd(P),rnd(I),rnd(D),rnd(_err),rnd(ret_val)
+				act_val,_dt,self.cnt_step,rnd(P),rnd(I),rnd(D),rnd(act_val - _err),rnd(ret_val)
 		))
 		return int(ret_val)
 
