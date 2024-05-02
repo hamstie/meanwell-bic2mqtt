@@ -950,8 +950,8 @@ class CChargeCtrlPID(CChargeCtrlBase):
 
 	""" Charge Control Simple:
 		# not used @param dbkey-int [CHARGE_CONTROL]Id/X/Pid/ClockSec def:0
-		@param dbkey-int [CHARGE_CONTROL]Id/X/Pid/Min def:0
-		@param dbkey-int [CHARGE_CONTROL]Id/X/Pid/Max def:0
+		@param dbkey-int [CHARGE_CONTROL]Id/X/Pid/MaxChargePower def:0
+		@param dbkey-int [CHARGE_CONTROL]Id/X/Pid/MaxDischargePower def:0
 		@param dbkey-float [CHARGE_CONTROL]Id/X/Pid/P def:1
 		@param dbkey-float [CHARGE_CONTROL]Id/X/Pid/I def:0
 		@param dbkey-float [CHARGE_CONTROL]Id/X/Pid/D def:0
@@ -965,8 +965,8 @@ class CChargeCtrlPID(CChargeCtrlBase):
 		self.pid.cfg(
 			ini.get_int('CHARGE_CONTROL',kpfx('Pid/ClockSec'),0), # 0, means messure time between each step
 			self.charge_pow_offset,
-			ini.get_int('CHARGE_CONTROL',kpfx('Pid/Min'),0),
-			ini.get_int('CHARGE_CONTROL',kpfx('Pid/Max'),0),
+			ini.get_int('CHARGE_CONTROL',kpfx('Pid/MaxDischargePower'),0),
+			ini.get_int('CHARGE_CONTROL',kpfx('Pid/MaxChargePower'),0),
 			ini.get_float('CHARGE_CONTROL',kpfx('Pid/P'),1),
 			ini.get_float('CHARGE_CONTROL',kpfx('Pid/I'),0),
 			ini.get_float('CHARGE_CONTROL',kpfx('Pid/D'),0)

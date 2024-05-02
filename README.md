@@ -97,7 +97,6 @@ Configuration File: bic2mqtt.ini
 
  Cap2V/0     =19.00
 
-## Section [CHARGE_CONTROL]
 
 To control charging and discharging with this app. 
 
@@ -112,6 +111,12 @@ To control charging and discharging with this app.
 |Id/X/ChargePowerOffset       | def: 0[W]               | offset grid power for the calculation, move the zero point of power balance |
 |Id/X/ChargeTol               | def: 10[W]              | don't set new charge value if the running one is nearby   |
 |Id/0/LoopGain                | def:0.5                 | regulator loop gain (only for the simple charger )        |
+|Id/X/Pid/MaxChargePower      | def:0 [W]               | max charge power value [W]                                |
+|Id/X/Pid/MaxDischargePower   | def:0 [W]               | max discharge power [W]                                   |
+|Id/X/Pid/P                   | def:1.0  [0..1.0]       | P-Factor                                                  |
+|Id/X/Pid/I                   | def:0.0  [0..1.0]       | I-Factor leave it zero for simple config                  |
+|Id/X/Pid/D                   | def:0.0  [0..1.0]       | D-Factor leave it zero for simple config                  |
+
 
 --------
 
