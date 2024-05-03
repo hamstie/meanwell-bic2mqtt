@@ -1026,7 +1026,7 @@ class CChargeCtrlPID(CChargeCtrlBase):
 		charge_pow = self.dev_bic.charge['chargeP'] # charge power of the bat from real voltage and current of the bic
 		#grid_pow = self.avg_pow.avg_get(1*1000*60,-1) # + self.charge_pow_offset # used avg grid power with offset
 
-		new_calc_pow = grid_pow + self.pid.step(grid_pow)
+		new_calc_pow = charge_pow + self.pid.step(grid_pow)
 
 		# check and skip short discharge burst e.g. use the grid power for the tee-kettle
 		if new_calc_pow < 0:
