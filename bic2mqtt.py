@@ -22,7 +22,7 @@ APP_NAME = "bic2mqtt"
 	    P2: (Toggling display string for MQTT-Dashboards: Power,Temp,Voltage..)
 		P1: DischargeBlockTime Start/Stop
 
- - EEPROM Write is possible since datecode:2402..
+ - EEPROM Write disable is possible since bic-firmware datecode:2402..
 """
 
 import logging
@@ -883,13 +883,12 @@ class CPID :
 		lg.info("pid cfg: P:{} I:{} D:{} offset:{} dt:{}".format(rnd(kp),rnd(ki),rnd(kd),rnd(offset),self.cfg_dt))
 		return
 
-
-
 	# calculate next pid step after dt
 	def step(self,act_val) :
 
 		def rnd(val):
 			return round(val,1)
+
 		def clamp(val, minn, maxn):
 			new_val = max(min(maxn, val), minn)
 			if new_val != val:
@@ -904,13 +903,18 @@ class CPID :
 				_dt = CChargeCtrlBase.get_time_diff_sec(self.t_step)
 			return _dt
 
+		if self.cnt_step ==0: # skip first loop
+			self.t_step = datetime.now() 
+			self.cnt_step+=1
+			return 0
+
 		_dt = get_dt()
 
 		_err = self.cfg_offset - act_val
 		P = self.cfg_kp * _err
 
 		# faster I Value reset
-		if  CChargeCtrlBase.sign(act_val) != CChargeCtrlBase.sign(self.I_val):
+		if  (CChargeCtrlBase.sign(act_val) != CChargeCtrlBase.sign(self.I_val)) and (self.cfg_ki >0):
 			self.I_val=0
 			lg.debug("pid rst I")
 		else:
@@ -931,7 +935,7 @@ class CPID :
 		self.cnt_step += 1
 		self.t_step = datetime.now() # dynamic step calculation for _dt
 		lg.debug("pid stp v:{} dt:{}[s] stp:{} p:{} i:{} d:{} err:{} ret:{}[W]".format(
-				act_val,_dt,self.cnt_step,rnd(P),rnd(I),rnd(D),rnd(act_val - _err),rnd(ret_val)
+				act_val,_dt,self.cnt_step,rnd(P),rnd(I),rnd(D),rnd(_err),rnd(ret_val)
 		))
 		return int(ret_val)
 
@@ -1006,12 +1010,11 @@ class CChargeCtrlPID(CChargeCtrlBase):
 			return
 
 		charge_pow = self.dev_bic.charge['chargeP'] # charge power of the bat from real voltage and current of the bic
-		grid_pow = self.avg_pow.avg_get(1*1000*60,-1) + self.charge_pow_offset # used avg grid power with offset
+		#grid_pow = self.avg_pow.avg_get(1*1000*60,-1) # + self.charge_pow_offset # used avg grid power with offset
 
 		new_calc_pow = self.pid.step(grid_pow)
 
 		# check and skip short discharge burst e.g. use the grid power for the tee-kettle
-
 		if new_calc_pow < 0:
 			if self.discharge_blocking_state() is True:
 				new_calc_pow = 0
