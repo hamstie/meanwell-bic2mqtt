@@ -1136,8 +1136,7 @@ class App:
 					elif dpl['var'] == 'chargeP':
 						dev.charge_set_pow(dpl['val'])
 					elif dpl['var'] == 'cfgReload':
-						self.cfg()
-						pass # @todo config reload
+						self.cfg(True) # config reload
 						
 			except:
 				pass
