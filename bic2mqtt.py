@@ -1092,7 +1092,6 @@ class App:
 		
 		if self.ini is None:
 			self.ini = ini
-
 		if reload is True:
 			self.ini.reload()
 			for dev in self.dev_bic.values():
@@ -1136,8 +1135,7 @@ class App:
 					elif dpl['var'] == 'chargeP':
 						dev.charge_set_pow(dpl['val'])
 					elif dpl['var'] == 'cfgReload':
-						self.cfg(True) # config reload
-						
+						self.cfg(self.ini,True) # config reload
 			except:
 				pass
 		elif dev.top_inv + "/state/set" == mqtt_msg.topic:
