@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-APP_VER = "0.50"
+APP_VER = "0.51"
 APP_NAME = "bic2mqtt"
 
 """
  fst:05.04.2024 lst:03.05.2024
  Meanwell BIC2200-XXCAN to mqtt bridge
- V0.50 -pid-charge control is running
+ V0.51 -pid-charge control is running
  V0.33 -refresh info every hour
  V0.32 -bugfixing
  V0.31 -cleaning charger code
@@ -135,7 +135,7 @@ class CBattery():
 	# @return the capacity of the battery [%]
 	def get_capacity_pc(self,volt):
 
-		#@audit approx values between two cap values in the list
+		#approx values between two cap values in the list
 		def approx(c1:float ,c2:float,v1:float,v2:float):
 
 			#straight line equation y=ax+b
@@ -197,7 +197,7 @@ class CBicDevBase():
 		self.state['tempC'] = -278
 		self.state['acGridV'] = 0 # grid-volatge [V]
 		self.state['dcBatV'] = 0 # bat voltage DV [V]
-		self.state['capBatPc'] = 0 # bat capacity [%]  @todo
+		self.state['capBatPc'] = 0 # bat capacity [%]
 
 		self.avg_pow_charge = CMAvg(24*3600*1000) #average calculation or charged kWh
 		self.avg_pow_discharge = CMAvg(24*3600*1000) #average calculation or dischrged kWh
@@ -839,10 +839,10 @@ class CChargeCtrlSimple(CChargeCtrlBase):
 			#print("top:{} pl:{}".format(topic,str(dpl)))
 			global mqttc
 			mqttc.publish(topic,json.dumps(dpl, sort_keys=False, indent=0),0,False) # no retain
+			self.calc_power_set(new_calc_pow)
 		else:
 			lg.info('CC const value: grid:{} now:{}[W] calc:{}[W] ofs:{}[W]'.format(grid_pow,charge_pow,new_calc_pow,self.charge_pow_offset))
 
-		self.calc_power_set(new_calc_pow)
 		return
 
 
@@ -1026,7 +1026,8 @@ class CChargeCtrlPID(CChargeCtrlBase):
 		charge_pow = self.dev_bic.charge['chargeP'] # charge power of the bat from real voltage and current of the bic
 		#grid_pow = self.avg_pow.avg_get(1*1000*60,-1) # + self.charge_pow_offset # used avg grid power with offset
 
-		new_calc_pow = charge_pow + self.pid.step(grid_pow)
+		new_calc_pow = self.calc_pow + self.pid.step(grid_pow)
+		new_calc_pow=CChargeCtrlBase.clamp(new_calc_pow,self.pid.cfg_min, self.pid.cfg_max)
 
 		# check and skip short discharge burst e.g. use the grid power for the tee-kettle
 		if new_calc_pow < 0:
@@ -1042,10 +1043,10 @@ class CChargeCtrlPID(CChargeCtrlBase):
 			#print("top:{} pl:{}".format(topic,str(dpl)))
 			global mqttc
 			mqttc.publish(topic,json.dumps(dpl, sort_keys=False, indent=0),0,False) # no retain
+			self.calc_power_set(new_calc_pow)
 		else:
 			lg.info('CC const value: grid:{} now:{}[W] calc:{}[W] ofs:{}[W]'.format(grid_pow,charge_pow,new_calc_pow,self.charge_pow_offset))
 
-		self.calc_power_set(new_calc_pow)
 		return
 
 
