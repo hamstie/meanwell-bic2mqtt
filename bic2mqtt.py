@@ -873,17 +873,18 @@ class CPID :
 		self.t_step = datetime.now()
 		self.cnt_steps=0
 
-	# configuration and reset of the pid
-	def cfg(self, dt_sec,offset, vmin, vmax, kp, ki, kd):
-		def rnd(val):
-			return round(val,1)
-
-		# reset running values
+	def reset(self):
 		self.err = 0.0
 		self.I_val = 0.0
 		self.t_step = datetime.now() # step calculation for cfg_dt
 		self.cnt_step = 0
 
+	# configuration and reset of the pid
+	def cfg(self, dt_sec,offset, vmin, vmax, kp, ki, kd):
+		def rnd(val):
+			return round(val,1)
+
+		self.reset()
 		self.cfg_dt  = int(dt_sec) 	# >0 force this time-between steps 
 		self.cfg_offset = float(offset) # const-offset
 		self.cfg_min = float(vmin)	# min allow value
@@ -1010,7 +1011,6 @@ class CChargeCtrlPID(CChargeCtrlBase):
 			self.calc_power(pow_val)
 
 
-
 	""" charge discharge control via PID
 		- discharge block time, skip fast charge, discharge toggle
 		- discharge only over night if configured
@@ -1032,6 +1032,7 @@ class CChargeCtrlPID(CChargeCtrlBase):
 		if new_calc_pow < 0:
 			if self.discharge_blocking_state() is True:
 				new_calc_pow = 0
+				self.pid.reset()
 
 		if abs(int(charge_pow - new_calc_pow)) > self.charge_pow_tol:
 			lg.info('CC set new value: grid:{} now:{}[W] calc:{}[W] ofs:{}[W]'.format(grid_pow,charge_pow,new_calc_pow,self.charge_pow_offset))
@@ -1053,8 +1054,8 @@ class CChargeCtrlPID(CChargeCtrlBase):
 
 	def enable(self,enable):
 		self.super().enable(enable)
-		self.pid.cfg() # also a pid-reset
-
+		self.pid.reset()
+		
 
 """
 Main App
