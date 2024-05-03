@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-APP_VER = "0.41"
+APP_VER = "0.50"
 APP_NAME = "bic2mqtt"
 
 """
  fst:05.04.2024 lst:03.05.2024
  Meanwell BIC2200-XXCAN to mqtt bridge
- V0.41 ..pid-charge control
+ V0.50 -pid-charge control is running
  V0.33 -refresh info every hour
  V0.32 -bugfixing
  V0.31 -cleaning charger code
@@ -933,7 +933,7 @@ class CPID :
 
 		# calculate I-Part
 		self.I_val += self.cfg_ki * _err * _dt
-		self.I_val = clamp(self.I_val,self.cfg_min, self.cfg_max)
+		self.I_val = clamp(self.I_val,self.cfg_min / 4, self.cfg_max / 4)
 		I = self.I_val
 
 		if _dt >0:
