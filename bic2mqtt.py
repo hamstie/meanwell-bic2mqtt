@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-APP_VER = "0.40"
+APP_VER = "0.41"
 APP_NAME = "bic2mqtt"
 
 """
- fst:05.04.2024 lst:02.05.2024
+ fst:05.04.2024 lst:03.05.2024
  Meanwell BIC2200-XXCAN to mqtt bridge
- V0.40 ..pid-charge control
+ V0.41 ..pid-charge control
  V0.33 -refresh info every hour
  V0.32 -bugfixing
  V0.31 -cleaning charger code
@@ -913,15 +913,17 @@ class CPID :
 		_err = self.cfg_offset - act_val
 		P = self.cfg_kp * _err
 
+		"""
 		# faster I Value reset
-		if  (CChargeCtrlBase.sign(act_val) != CChargeCtrlBase.sign(self.I_val)) and (self.cfg_ki >0):
+		if  (CChargeCtrlBase.sign(_err) != CChargeCtrlBase.sign(self.I_val)) and (self.cfg_ki >0):
 			self.I_val=0
 			lg.debug("pid rst I")
-		else:
-			self.I_val = clamp(self.I_val,self.cfg_min / 2, self.cfg_max / 2)
+		"""
 
-		self.I_val += _err * _dt
-		I = self.cfg_ki * self.I_val
+		# calculate I-Part
+		self.I_val += self.cfg_ki * _err * _dt
+		self.I_val = clamp(self.I_val,self.cfg_min, self.cfg_max)
+		I = self.I_val
 
 		if _dt >0:
 			D = self.cfg_kd * (_err - self.err) / _dt
@@ -984,6 +986,7 @@ class CChargeCtrlPID(CChargeCtrlBase):
 		- haus/kel/pgrid/pnow
 	"""
 	def on_cb_grid_power(self,pow_val):
+		
 		def avg2min(minute : int):
 			return self.avg_pow.avg_get(minute*60*1000,-1)
 
