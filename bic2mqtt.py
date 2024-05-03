@@ -19,8 +19,11 @@ APP_NAME = "bic2mqtt"
  V0.00 No fuction yet, working on the app-frame
 
  @todo: P1: check what happened if the broker is unreachable
-	    P2: (Toggling display string for MQTT-Dashboards: Power,Temp,Voltage..)
-		P1: DischargeBlockTime Start/Stop
+	    P4: (Toggling display string for MQTT-Dashboards: Power,Temp,Voltage..)
+		P2: hot config
+		P2: CChargeTimeProfiles for each hour: max charge/discharge and
+		P2: Charge set parameter stop control and reload config, control the app via mqtt
+
 
  - EEPROM Write disable is possible since bic-firmware datecode:2402..
 """
@@ -63,6 +66,12 @@ class CIni:
 	def __init__(self,fname : str):
 		self.fname = fname # ini file name
 		self.cfg = configparser.ConfigParser()
+		lret = self.cfg.read(self.fname)
+		if len(lret) == 0:
+			raise FileNotFoundError(fname)
+
+	def reload(self):
+		lg.info('ini config reload file:' + str(self.fname))
 		lret = self.cfg.read(self.fname)
 		if len(lret) == 0:
 			raise FileNotFoundError(fname)
@@ -115,7 +124,7 @@ class CBattery():
 
 	# bat profile from ini
 	# @param dbkey-int [BAT_0]Cap2V/X=V battery capacity [%] to voltage
-	def cfg(self,ini):
+	def cfg(self,ini,reload = False):
 		d = ini.get_sec_keys('BAT_0')
 		for k,v in d.items():
 				if k.find('cap2v/')>=0:
@@ -336,7 +345,7 @@ class CBicDevBase():
 		@param dbkey-int [DEVICE]Id/X/MaxDischargeCurrent def:2600 volt*100
 		@topic-sub <main-app>/inv/<id>/state/set [1,0] inverter operating mode
 	"""
-	def cfg(self,ini):
+	def cfg(self,ini,reload = False):
 		lg.info('cfg id:' + str(self.id))
 		def kpfx(str_tail : str):
 			return "Id/{}/{}".format(self.id,str_tail)
@@ -348,7 +357,7 @@ class CBicDevBase():
 		self.cfg_max_cdischarge100 = ini.get_int('DEVICE',kpfx('MaxDischargeCurrent'),self.cfg_max_cdischarge100)
 		self.top_inv = MQTT_T_APP + '/inv/' + str(self.id)
 
-		self.bat.cfg(ini)
+		self.bat.cfg(ini,reload)
 
 		lg.info("init " + str(self))
 		#dischargedelay = int(config.get('Settings', 'DischargeDelay'))
@@ -504,7 +513,7 @@ class CBicDev2200_24(CBicDevBase):
 
 	# special config
 	# @param dbkey-int [DEVICE]Id/X/CanBitrate def:250000
-	def cfg(self,ini):
+	def cfg(self,ini,reload = False):
 		def kpfx(str_tail : str):
 			return "Id/{}/{}".format(self.id,str_tail)
 
@@ -542,7 +551,7 @@ class CBicDev2200_24(CBicDevBase):
 
 	# special config
 	# @param dbkey-int [DEVICE]Id/X/CanBitrate def:250000
-	def cfg(self,ini):
+	def cfg(self,ini,reload = False):
 		def kpfx(str_tail : str):
 			return "Id/{}/{}".format(self.id,str_tail)
 
@@ -628,17 +637,19 @@ class CChargeCtrlBase():
 	@param dbkey-int [CHARGE_CONTROL]Id/X/DischargeBlockHourStop def:-1  [0..23] stop interval hour of day to block discharging
 
 	"""
-	def cfg(self,ini):
+	def cfg(self,ini,reload = False):
 		def kpfx(str_tail : str):
 			return "Id/{}/{}".format(self.id,str_tail)
 
-		top_pow = ini.get_str('CHARGE_CONTROL',kpfx('TopicPower'),MQTT_APP_ID)
-		msg = CMQTT.CMSG(top_pow,"dummypl")
-		msg.cb = self.cb_mqtt_sub_power
-		msg.cb_user_data = self.on_cb_grid_power
-		global mqttc
-		mqttc.append_subscribe(msg)
-		lg.info('CC grid power topic:' + str(top_pow))
+		if reload is False:
+			top_pow = ini.get_str('CHARGE_CONTROL',kpfx('TopicPower'),MQTT_APP_ID)
+			msg = CMQTT.CMSG(top_pow,"dummypl")
+			msg.cb = self.cb_mqtt_sub_power
+			msg.cb_user_data = self.on_cb_grid_power
+			global mqttc
+			mqttc.append_subscribe(msg)
+			lg.info('CC grid power topic:' + str(top_pow))
+
 		_enabled = ini.get_int('CHARGE_CONTROL',kpfx('Enabled'),0)
 		if _enabled >0:
 			self.enabled = True
@@ -748,7 +759,7 @@ class CChargeCtrlSimple(CChargeCtrlBase):
 
 	""" Charge Control Simple:
 	"""
-	def cfg(self,ini):
+	def cfg(self,ini,reload = False):
 
 		def kpfx(str_tail : str):
 			return "Id/{}/{}".format(self.id,str_tail)
@@ -962,7 +973,7 @@ class CChargeCtrlPID(CChargeCtrlBase):
 		@param dbkey-float [CHARGE_CONTROL]Id/X/Pid/I def:0
 		@param dbkey-float [CHARGE_CONTROL]Id/X/Pid/D def:0
 		"""
-	def cfg(self,ini):
+	def cfg(self,ini,reload = False):
 
 		def kpfx(str_tail : str):
 			return "Id/{}/{}".format(self.id,str_tail)
@@ -1015,7 +1026,7 @@ class CChargeCtrlPID(CChargeCtrlBase):
 		charge_pow = self.dev_bic.charge['chargeP'] # charge power of the bat from real voltage and current of the bic
 		#grid_pow = self.avg_pow.avg_get(1*1000*60,-1) # + self.charge_pow_offset # used avg grid power with offset
 
-		new_calc_pow = self.pid.step(grid_pow)
+		new_calc_pow = grid_pow + self.pid.step(grid_pow)
 
 		# check and skip short discharge burst e.g. use the grid power for the tee-kettle
 		if new_calc_pow < 0:
@@ -1057,7 +1068,7 @@ class App:
 	ts_1min=0   # [s]
 	uptime_min=0
 
-	def __init__(self,cmqtt):
+	def __init__(self,cmqtt,ini):
 		self.cmqtt = cmqtt
 		#self.ini = ini
 		#self.id= ini.get_str('MQTT','AppId',MQTT_APP_ID)
@@ -1065,7 +1076,7 @@ class App:
 		self.info = {}
 		self.started = False
 		self.dev_bic = {} # all bic hardware devices
-		self.bat = CBattery(0)
+		self.ini = ini
 
 	def stop(self):
 		for dev in self.dev_bic.values():
@@ -1077,11 +1088,21 @@ class App:
 		@param dbkey-int [DEVICE]Id/X/CanBaudRate def:0 Baudrate
 		@topic-sub <main-app>/inv/<id>/charge/set {"var":[chargeA,chargeP],"val":[ampere or power]]}
 	"""
-	def cfg(self,ini):
+	def cfg(self,ini,reload = False):
+		
+		if self.ini is None:
+			self.ini = ini
+
+		if reload is True:
+			self.ini.reload()
+			for dev in self.dev_bic.values():
+				dev.cfg(self.ini,True)
+				dev.cc.cfg(self.ini,True)
+			return
+
 		# @future-use iterate over all bic's
 		id = 0
 		dev_type = ini.get_str('DEVICE','Id/{}/Type'.format(id),"")
-		self.bat.cfg(ini)
 		if dev_type == 'BIC2200-24CAN':
 			dev = CBicDev2200_24(id)
 			dev.cfg(ini)
@@ -1093,20 +1114,7 @@ class App:
 					msg.cb = self.cb_mqtt_sub_event
 					msg.cb_user_data = dev
 					mqttc.append_subscribe(msg)
-				"""
-				msg = CMQTT.CMSG(dev.top_inv + "/charge/set","dummypl")
-				msg.cb = self.cb_mqtt_sub_event
-				msg.cb_user_data = dev
-				mqttc.append_subscribe(msg)
-				msg = CMQTT.CMSG(dev.top_inv + "/state/set","dummypl")
-				msg.cb = self.cb_mqtt_sub_event
-				msg.cb_user_data = dev
-				mqttc.append_subscribe(msg)
-				msg = CMQTT.CMSG(dev.top_inv + "/control/set","dummypl")
-				msg.cb = self.cb_mqtt_sub_event
-				msg.cb_user_data = dev
-				mqttc.append_subscribe(msg)
-				"""
+				
 			#dev.cc = CChargeCtrlSimple(dev)
 			dev.cc = CChargeCtrlPID(dev)
 			dev.cc.cfg(ini)
@@ -1127,6 +1135,10 @@ class App:
 						dev.charge_set_amp(dpl['val'])
 					elif dpl['var'] == 'chargeP':
 						dev.charge_set_pow(dpl['val'])
+					elif dpl['var'] == 'cfgReload':
+						self.cfg()
+						pass # @todo config reload
+						
 			except:
 				pass
 		elif dev.top_inv + "/state/set" == mqtt_msg.topic:
@@ -1249,7 +1261,7 @@ def main_init():
 	mqttc.on_disconnect = mqtt_on_disconnect
 
 	global app
-	app = App(mqttc)
+	app = App(mqttc,ini)
 	app.cfg(ini)
 
 

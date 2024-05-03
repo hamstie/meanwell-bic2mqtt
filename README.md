@@ -11,12 +11,8 @@ Some new features:
    - read failues will be raised a Timout or RuntimeExeption
  - disabling eeprom write access (not tested yet, no available firmware-version)
 
-Pre-Tested with the 24V Version BIC-2200-24-CAN<br>
-Please note: this tool is not yet complete and also not fully tested. <br>
-Do not use without monitoring the devices. 
+Tested with the 24V Version BIC-2200-24-CAN<br>
 
-What is missing:
-- variables plausibility check
 
        Usage: ./cbic2200.py parameter value
        
@@ -140,6 +136,6 @@ To control charging and discharging with this app.
 
         
 # Examples        
-Example code to control battery charging and discharging depending on the electricity meter. 
+Example code to control battery charging and discharging with cbic2200.py depending on the electricity meter.
 
 **All scripts are without any warranty. Use at your own risk**
