@@ -3,7 +3,7 @@ APP_VER = "0.51"
 APP_NAME = "bic2mqtt"
 
 """
- fst:05.04.2024 lst:03.05.2024
+ fst:05.04.2024 lst:04.05.2024
  Meanwell BIC2200-XXCAN to mqtt bridge
  V0.51 -pid-charge control is running
  V0.33 -refresh info every hour
@@ -74,7 +74,7 @@ class CIni:
 		lg.info('ini config reload file:' + str(self.fname))
 		lret = self.cfg.read(self.fname)
 		if len(lret) == 0:
-			raise FileNotFoundError(fname)
+			raise FileNotFoundError(self.fname)
 
 	def get_str(self,sec : str,key : str,def_val : str):
 		#if self.cfg.has_section(sec):
@@ -489,7 +489,7 @@ class CBicDevBase():
 		v = self.charge['chargeP']
 		if v < 20:
 			v = 24 # set before read from bic
-		amp = int(val_pow) / round(24,1)  # used normaly the real running voltage @fixme
+		amp = int(val_pow) / round(v,1)  # used normaly the real running voltage
 		#print('calcP:' + str(val_pow) + ' amp:' + str(amp))
 		self.charge_set_amp(amp)
 
@@ -1054,7 +1054,7 @@ class CChargeCtrlPID(CChargeCtrlBase):
 		super().poll(timeslice_ms)
 
 	def enable(self,enable):
-		self.super().enable(enable)
+		super().enable(enable)
 		self.pid.reset()
 		
 
