@@ -11,7 +11,7 @@
 # - variables plausibility check
 # - programming missing functions
 # - current and voltage maximum settings
-VER = "0.2.74"
+VER = "0.2.75"
 # steve 08.06.2023  Version 0.2.1
 # steve 10.06.2023  Version 0.2.2
 # macGH 15.06.2023  Version 0.2.3
@@ -40,6 +40,7 @@ VER = "0.2.74"
 # hamstie 29.04.2024 Version 0.2.74
 #       + can_send_receive word(), skip useless eeprom writes and check the value with write read sequence
 #       - toggle-operation
+# hamstie 4.5.2024 catch index error if can read failed
 
 import os
 import can
@@ -292,10 +293,10 @@ class CBic:
     def can_receive_char(self):
         try:
             msgr_split = self.can_rcv_raw()
-        except TimeoutError:
+            s = bytearray.fromhex(msgr_split[10]+msgr_split[11]+msgr_split[12]+msgr_split[13]+msgr_split[14]+msgr_split[15]).decode()
+        except (TimeoutError,IndexError):
             return None
 
-        s = bytearray.fromhex(msgr_split[10]+msgr_split[11]+msgr_split[12]+msgr_split[13]+msgr_split[14]+msgr_split[15]).decode()
         #print(s)
         return s
 
@@ -585,7 +586,7 @@ class CBic:
         self.d_info['sysCfgBDir'] = hex(self.can_receive()) # bdir config bit 1
         
         self.can_send_msg([0x86,0x00])
-        self.d_info['manDate'] = self.can_receive_char() # manufac. date
+        self.d_info['manDate'] = str(self.can_receive_char()) # manufac. date
 
         self.d_info['cntWrite'] = self.write_cnt
 
@@ -610,6 +611,8 @@ class CBic:
         self.can_send_msg([commandlowbyte,commandhighbyte])
         s2 = self.can_receive_char()
 
+        if s1 is None or s2 is None:
+            return None
         s=s1+s2
         #print(s)
         return s
