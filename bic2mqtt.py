@@ -1011,6 +1011,20 @@ class CChargeCtrlPID(CChargeCtrlBase):
 			self.calc_power(pow_val)
 
 
+	""" try to fix the offset problem of my smart-meter at point zero
+		- this point is very unstable for the sign calculation
+		- try to fix the pid-regulator between the offset value:
+		-30 -20 0 0 0 +20 30
+		-       ^ ^ ^   offset:+-20 set all values between offset to zero
+		@return modifyed grid power value
+	"""
+	def sm_zero_tol(self,grid_pow):
+		sm_offset=10
+		if (grid_pow >= (sm_offset * (-1))) and (grid_pow <= sm_offset):
+			return 0
+		else:
+			return grid_pow
+
 	""" charge discharge control via PID
 		- discharge block time, skip fast charge, discharge toggle
 		- discharge only over night if configured
@@ -1018,7 +1032,7 @@ class CChargeCtrlPID(CChargeCtrlBase):
 
 	"""
 	def calc_power(self,grid_pow):
-
+		#grid_pow=self.sm_zero_tol(grid_pow)
 		is_running = super().calc_power(grid_pow)
 		if is_running is False:
 			return
@@ -1028,12 +1042,15 @@ class CChargeCtrlPID(CChargeCtrlBase):
 
 		new_calc_pow = self.calc_pow + self.pid.step(grid_pow)
 		new_calc_pow=CChargeCtrlBase.clamp(new_calc_pow,self.pid.cfg_min, self.pid.cfg_max)
+		#new_calc_pow=CChargeCtrlBase.clamp(charge_pow,charge_pow-100, charge_pow+100)
 
 		# check and skip short discharge burst e.g. use the grid power for the tee-kettle
 		if new_calc_pow < 0:
 			if self.discharge_blocking_state() is True:
 				new_calc_pow = 0
 				self.pid.reset()
+		else:
+			pass
 
 		if abs(int(charge_pow - new_calc_pow)) > self.charge_pow_tol:
 			lg.info('CC set new value: grid:{} now:{}[W] calc:{}[W] ofs:{}[W]'.format(grid_pow,charge_pow,new_calc_pow,self.charge_pow_offset))
