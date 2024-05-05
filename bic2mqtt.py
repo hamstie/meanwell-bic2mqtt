@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-APP_VER = "0.51"
+APP_VER = "0.52"
 APP_NAME = "bic2mqtt"
 
 """
- fst:05.04.2024 lst:04.05.2024
+ fst:05.04.2024 lst:05.05.2024
  Meanwell BIC2200-XXCAN to mqtt bridge
+ V0.52 ...try2minimize eeprom write access
  V0.51 -pid-charge control is running
  V0.33 -refresh info every hour
  V0.32 -bugfixing
@@ -741,8 +742,9 @@ class CChargeCtrlBase():
 		lg.info('CC (default) new grid power value {}[W]'.format(self.grid_pow))
 
 	# grid power smart meter timeout stop discharging ?
-	def on_cb_grid_power_tmo():
+	def on_cb_grid_power_tmo(self):
 		lg.warning('CC grid power TMO')
+		self.enable(False)
 		return
 
 
@@ -997,21 +999,21 @@ class CChargeCtrlPID(CChargeCtrlBase):
 		usefull functions for the future:
 		- haus/kel/pgrid/pnow
 	"""
-	def on_cb_grid_power(self,pow_val):
+	def on_cb_grid_power(self,grid_pow):
 		
 		def avg2min(minute : int):
 			return self.avg_pow.avg_get(minute*60*1000,-1)
 
 		self.tmo_grid_sec = CChargeCtrlBase.DEF_GRID_TMO_SEC
 		#lg.info('CC new grid power value {} [W]'.format(self.grid_pow))
-		self.avg_pow.push_val(pow_val)
-
-		lg.info('CC GRID POW:{}[W] AVG:1m:{} 2m:{} 5m:{} 1h:{} offs:{}[W]'.format(pow_val,avg2min(1),avg2min(2),avg2min(5),avg2min(60),self.charge_pow_offset))
+		#grid_pow=self.sm_zero_tol(grid_pow)
+		self.avg_pow.push_val(grid_pow)
+		lg.info('CC GRID POW:{}[W] AVG:1m:{} 2m:{} 5m:{} 1h:{} offs:{}[W]'.format(grid_pow,avg2min(1),avg2min(2),avg2min(5),avg2min(60),self.charge_pow_offset))
 		if self.enabled is True:
-			self.calc_power(pow_val)
+			self.calc_power(grid_pow)
 
 
-	""" try to fix the offset problem of my smart-meter at point zero
+	""" @audit try to fix the offset problem of my smart-meter at point zero
 		- this point is very unstable for the sign calculation
 		- try to fix the pid-regulator between the offset value:
 		-30 -20 0 0 0 +20 30
@@ -1032,14 +1034,13 @@ class CChargeCtrlPID(CChargeCtrlBase):
 
 	"""
 	def calc_power(self,grid_pow):
-		#grid_pow=self.sm_zero_tol(grid_pow)
+		
 		is_running = super().calc_power(grid_pow)
 		if is_running is False:
 			return
 
 		charge_pow = self.dev_bic.charge['chargeP'] # charge power of the bat from real voltage and current of the bic
-		#grid_pow = self.avg_pow.avg_get(1*1000*60,-1) # + self.charge_pow_offset # used avg grid power with offset
-
+		
 		new_calc_pow = self.calc_pow + self.pid.step(grid_pow)
 		new_calc_pow=CChargeCtrlBase.clamp(new_calc_pow,self.pid.cfg_min, self.pid.cfg_max)
 		#new_calc_pow=CChargeCtrlBase.clamp(charge_pow,charge_pow-100, charge_pow+100)
@@ -1052,7 +1053,7 @@ class CChargeCtrlPID(CChargeCtrlBase):
 		else:
 			pass
 
-		if abs(int(charge_pow - new_calc_pow)) > self.charge_pow_tol:
+		if abs(int(grid_pow - new_calc_pow)) > self.charge_pow_tol:
 			lg.info('CC set new value: grid:{} now:{}[W] calc:{}[W] ofs:{}[W]'.format(grid_pow,charge_pow,new_calc_pow,self.charge_pow_offset))
 			topic = self.dev_bic.top_inv + '/charge/set'
 			dpl = {"var":"chargeP"}
