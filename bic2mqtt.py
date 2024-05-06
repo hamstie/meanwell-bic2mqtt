@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-APP_VER = "0.53"
+APP_VER = "0.60"
 APP_NAME = "bic2mqtt"
 
 """
  fst:05.04.2024 lst:06.05.2024
  Meanwell BIC2200-XXCAN to mqtt bridge
+ V0.60 + charge profiles for each hour
  V0.53 ..fast pid reset if grid power changed the direction
  V0.52 -minimize eeprom write access (cfg tolerance & rounding)
 	   -audit grid-power tmo handling 
@@ -411,6 +412,10 @@ class CBicDevBase():
 	# @topic-pub <main-app>/inv/<id>/fault
 	def poll(self,timeslive_ms):
 
+		if  self.bic is None:
+			lg.warning('dev bic is not started')
+			return
+
 		def fault_check_update(force = False):
 			fault_update = self.bic.faultread()
 			if fault_update is True or force == True:
@@ -586,6 +591,7 @@ class CBicDev2200_24(CBicDevBase):
 """
 class CCCProfile():
 	lst_hour = [] # 24 profiles for each hour
+	hour_now = -1 # actual hour
 	def __init__(self,hour, cc):
 		self.id =0 # future use 
 		self.hour = hour # [0..23] hour of day 
@@ -602,31 +608,48 @@ class CCCProfile():
 	def cfg(ini):
 		def kpfx(hour : int,str_tail : str):
 			id = 0
-			return "Id/0/Profile/Hour/{}".format(hour,str_tail)
+			return "Id/0/Profile/Hour/{}/{}".format(hour,str_tail)
 		
-		pow_charge_max_def = ini.get_int('CHARGE_CONTROL',kpfx('*','MaxChargePower'),0)
-		pow_discharge_max_def = ini.get_int('CHARGE_CONTROL',kpfx('*','MaxDischargePower'),0)
+		CCCProfile.lst_hour.clear()
+		CCCProfile.hour_now = -1 
+		pow_charge_max_def = 0 # ini.get_int('CHARGE_CONTROL',kpfx('*','MaxChargePower'),0)
+		pow_discharge_max_def = 0 # = ini.get_int('CHARGE_CONTROL',kpfx('*','MaxDischargePower'),0)
 
 		for h in range(0,24):
-			cprof = CCCProfile(h)
+			cprof = CCCProfile(h,None)
+			#print(str(kpfx(str(h),'MaxChargePower')))
 			cprof.pow_charge_max = ini.get_int('CHARGE_CONTROL',kpfx(str(h),'MaxChargePower'),pow_charge_max_def)
 			cprof.pow_discharge_max = ini.get_int('CHARGE_CONTROL',kpfx(str(h),'MaxDischargePower'),pow_discharge_max_def)
+			pow_charge_max_def = cprof.pow_charge_max 
+			pow_discharge_max_def = cprof.pow_discharge_max
 			CCCProfile.lst_hour.append(cprof)
 		
 		CCCProfile.dump()
+		
 			
 	def __str__(self):
-		lg.info('Charge-Profile:')
-		lg.info('{}[h] pCharge:{}[W] pDischarge:{}[W]'.format(self.hour,self.pow_charge_max,self.pow_discharge_max))
+		sret = '{}[h] pCharge:{}[W] pDischarge:{}[W]'.format(self.hour,self.pow_charge_max,self.pow_discharge_max)
+		return sret
 	
+	# @return true if the hour has changed
 	@staticmethod
-	def poll(timeslice_sec):
-		pass
+	def hour_changed():
+		now =  datetime.now()
+		if now.hour != CCCProfile.hour_now:
+			CCCProfile.hour_now = now.hour
+			return True
+		return False
+
+	@staticmethod
+	def hour_get():
+		CCCProfile.hour_changed() # set actual hour
+		return CCCProfile.lst_hour[CCCProfile.hour_now]
 
 	@staticmethod
 	def dump():
+		lg.info('Charge-Profile:')
 		for cprof in CCCProfile.lst_hour:
-			str(cprof)
+			lg.info(str(cprof))
 	
 
 """
@@ -658,6 +681,7 @@ class CChargeCtrlBase():
 		self.t_last_charge = datetime.now()
 
 		self.lst_discharge_block_hour = [-1,-1] # between this two hours , block discharging
+
 
 	@staticmethod
 	def sign(x):
@@ -723,6 +747,7 @@ class CChargeCtrlBase():
 		self.charge_pow_tol = ini.get_int('CHARGE_CONTROL',kpfx('ChargeTol'),self.charge_pow_tol)
 		self.lst_discharge_block_hour[0] = ini.get_int('CHARGE_CONTROL',kpfx('DischargeBlockHourStart'),-1) # invalidate as default
 		self.lst_discharge_block_hour[1] = ini.get_int('CHARGE_CONTROL',kpfx('DischargeBlockHourStop'),-1) # invalidate as default
+		CCCProfile.cfg(ini)
 		return
 
 	# @return True if discharging is blocked
@@ -1106,7 +1131,7 @@ class CChargeCtrlPID(CChargeCtrlBase):
 		@return True if the direction has changed at an high power-value
 	"""
 	def grid_power_dir_changed(self,grid_pow_now : int):
-		if grid_pow_now >= ((self.charge_pow_tol +10) * 10):
+		if abs(grid_pow_now) >= 100:
 			if CChargeCtrlBase.sign(grid_pow_now) != CChargeCtrlBase.sign(self.grid_pow_last):
 				return True
 		return False
@@ -1127,15 +1152,15 @@ class CChargeCtrlPID(CChargeCtrlBase):
 		charge_pow = self.dev_bic.charge['chargeP'] # charge power of the bat from real voltage and current of the bic
 
 		if self.grid_power_dir_changed(grid_pow) is True:
-			lg.info("CC grid power changed direction:pid reset")
-			#self.reset()
+			lg.critical("CC grid power changed direction:pid reset")
+			self.reset()
 
 		tol_pow=int(grid_pow - self.charge_pow_offset)
 		if abs(tol_pow) > self.charge_pow_tol:
 			new_calc_pow = self.calc_pow + self.pid.step(grid_pow)
 			#new_calc_pow = charge_pow + self.pid.step(grid_pow)
 		else:
-			lg.info('CC pid stoped tol:{}[W]'.format(tol_pow))
+			lg.debug('CC pid stoped tol:{}[W]'.format(tol_pow))
 			self.pid.reset()
 			return
 
@@ -1149,8 +1174,10 @@ class CChargeCtrlPID(CChargeCtrlBase):
 			if self.discharge_blocking_state() is True:
 				new_calc_pow = 0
 				self.pid.reset()
+			elif self.pid.cfg_min >=0:
+				lg.debug('CC no-discharge hour profile')
 
-		if abs(int(grid_pow - self.charge_pow_offset)) > self.charge_pow_tol:
+		if abs(tol_pow) > self.charge_pow_tol:
 			lg.info('CC set new value: pGrid:{}[W] pBat:{}[W] pCalcNew:{}[W] pOfs:{}[W]'.format(grid_pow,charge_pow,new_calc_pow,self.charge_pow_offset))
 			topic = self.dev_bic.top_inv + '/charge/set'
 			dpl = {"var":"chargeP"}
@@ -1167,6 +1194,12 @@ class CChargeCtrlPID(CChargeCtrlBase):
 
 	def poll(self,timeslice_ms):
 		super().poll(timeslice_ms)
+		if self.ts_1min == 1:
+			if CCCProfile.hour_changed() is True:
+				cprof = CCCProfile.hour_get()
+				lg.info('new hour profile:' + str(cprof))
+				self.pid.cfg_min = cprof.pow_discharge_max
+				self.pid.cfg_max = cprof.pow_charge_max
 
 	def reset(self):
 		super().reset()
@@ -1238,7 +1271,6 @@ class App:
 			#dev.cc = CChargeCtrlSimple(dev)
 			dev.cc = CChargeCtrlPID(dev)
 			dev.cc.cfg(ini)
-
 
 	""" set charging parameter
 		@topic-sub <main-app>/inv/<id>/charge/set {"var":[chargeA,chargeP],"val":[ampere or power]}
