@@ -245,14 +245,15 @@ class CBicDevBase():
 	# read from bic some common stuff
 	# 	@topic-pub <main-app>/inv/<id>/info
 	def	update_info(self):
-		dinf=self.bic.dump()
-		if dinf is not None:
-			self.info.update(dinf)
-		#lg.info(str(self.info))
+		if self.bic is not None:
+			dinf=self.bic.dump()
+			if dinf is not None:
+				self.info.update(dinf)
+			#lg.info(str(self.info))
 
-		jpl = json.dumps(self.info, sort_keys=False, indent=4)
-		global mqttc
-		mqttc.publish(MQTT_T_APP + '/inv/' + str(self.id) +  '/info',jpl,0,True) # retained
+			jpl = json.dumps(self.info, sort_keys=False, indent=4)
+			global mqttc
+			mqttc.publish(MQTT_T_APP + '/inv/' + str(self.id) +  '/info',jpl,0,True) # retained
 
 	""" not used
 	def update_power(self):
