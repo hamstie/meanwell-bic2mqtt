@@ -5,8 +5,9 @@ APP_NAME = "bic2mqtt"
 """
  fst:05.04.2024 lst:06.05.2024
  Meanwell BIC2200-XXCAN to mqtt bridge
- V0.52 ...try2minimize eeprom write access (cfg tolerance & rounding)
-	   - audit grid-power tmo handling 
+ V0.53 ..fast pid reset if grid power changed the direction
+ V0.52 -minimize eeprom write access (cfg tolerance & rounding)
+	   -audit grid-power tmo handling 
  V0.51 -pid-charge control is running
  V0.33 -refresh info every hour
  V0.32 -bugfixing
@@ -708,8 +709,7 @@ class CChargeCtrlBase():
 			mqttc.append_subscribe(msg)
 			lg.info('CC grid power topic:' + str(top_pow))
 		else:
-			self.dev_bic.charge_set_idle() # reset to lowest charge value
-			self.calc_pow = 0
+			self.reset()
 
 
 		_enabled = ini.get_int('CHARGE_CONTROL',kpfx('Enabled'),0)
@@ -756,11 +756,15 @@ class CChargeCtrlBase():
 
 		return True
 
+	def reset(self):
+		lg.info('CC charge control reset:')
+		self.dev_bic.charge_set_idle() # reset to lowest charge value
+		self.calc_pow = 0
+
 	def enable(self,enable):
 		self.enabled=enable
 		lg.info('CC charge control enable:' +str(enable))
-		self.dev_bic.charge_set_idle() # reset to lowest charge value
-		self.calc_pow = 0
+		self.reset()
 
 	def poll(self,timeslice_ms):
 
@@ -1031,6 +1035,7 @@ class CChargeCtrlPID(CChargeCtrlBase):
 		super().__init__(dev_bic)
 		self.pid = CPID() # pid regulator
 		self.cfg_loop_gain = 0.5 # regulator loop gain for new values
+		self.grid_pow_last = 0 # grid power value t-1
 
 
 	""" Charge Control Simple:
@@ -1078,9 +1083,10 @@ class CChargeCtrlPID(CChargeCtrlBase):
 		#grid_pow=self.sm_zero_tol(grid_pow)
 		if self.enabled is True:
 			self.calc_power(grid_pow)
+		self.grid_pow_last = grid_pow
 
 
-	""" @audit-ok try to fix the offset problem of my smart-meter at point zero
+	""" @audit-ok but not used try to fix the offset problem of my smart-meter at point zero
 		- this point is very unstable (the sign calculation)
 		- try to fix the pid-regulator between the offset value:
 		-30 -20 0 0 0 +20 30
@@ -1093,6 +1099,17 @@ class CChargeCtrlPID(CChargeCtrlBase):
 			return 0
 		else:
 			return grid_pow
+
+	""" reset the pid regulator if the sign of the grid is 
+		changing and the power value is high 
+		@return True if the direction has changed at an high power-value
+	"""
+	def grid_power_dir_changed(self,grid_pow_now : int):
+		if grid_pow_now >= ((self.charge_pow_tol +10) * 10):
+			if CChargeCtrlBase.sign(grid_pow_now) != CChargeCtrlBase.sign(self.grid_pow_last):
+				return True
+		return False
+
 
 	""" charge discharge control via PID
 		- discharge block time, skip fast charge, discharge toggle
@@ -1107,6 +1124,10 @@ class CChargeCtrlPID(CChargeCtrlBase):
 			return
 
 		charge_pow = self.dev_bic.charge['chargeP'] # charge power of the bat from real voltage and current of the bic
+
+		if self.grid_power_dir_changed(grid_pow) is True:
+			lg.info("CC grid power changed direction:pid reset")
+			#self.reset()
 
 		tol_pow=int(grid_pow - self.charge_pow_offset)
 		if abs(tol_pow) > self.charge_pow_tol:
@@ -1143,9 +1164,12 @@ class CChargeCtrlPID(CChargeCtrlBase):
 
 		return
 
-
 	def poll(self,timeslice_ms):
 		super().poll(timeslice_ms)
+
+	def reset(self):
+		super().reset()
+		self.pid.reset()
 
 	def enable(self,enable):
 		super().enable(enable)
