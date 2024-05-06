@@ -6,6 +6,7 @@ APP_NAME = "bic2mqtt"
  fst:05.04.2024 lst:05.05.2024
  Meanwell BIC2200-XXCAN to mqtt bridge
  V0.52 ...try2minimize eeprom write access (cfg tolerance & rounding)
+	   - audit grid-power tmo handling 
  V0.51 -pid-charge control is running
  V0.33 -refresh info every hour
  V0.32 -bugfixing
@@ -21,9 +22,7 @@ APP_NAME = "bic2mqtt"
 
  @todo: P1: check what happened if the broker is unreachable
 	    P4: (Toggling display string for MQTT-Dashboards: Power,Temp,Voltage..)
-		P2: hot config
 		P2: CChargeTimeProfiles for each hour: max charge/discharge and
-		P2: Charge set parameter stop control and reload config, control the app via mqtt
 
 
  - EEPROM Write disable is possible since bic-firmware datecode:2402..
@@ -448,9 +447,8 @@ class CBicDevBase():
 		if self.onl_mode >= CBicDevBase.e_onl_mode_idle:
 			try:
 				val_amp = round(val_amp,1)
-				"""   @audit """ 
 				if ((val_amp * 10) % 2) >0:
-					val_amp+=0.1  # allow only even last digit (reduce eprom writes for doubble values)
+					val_amp+=0.1  # allow only even last digit (reduce eeprom writes for doubble values)
 					val_amp=round(val_amp,1)
 				amp100 = int(val_amp * 100)
 				lg.info("dev set charge value to:{}[A]".format(val_amp))
@@ -574,6 +572,54 @@ class CBicDev2200_24(CBicDevBase):
 	def poll(self,timeslive_ms):
 		super().poll(timeslive_ms)
 
+""" @todo Charge Controller Profile
+ - Set some charge parameter for each hour of day
+ - MaxDischa
+"""
+class CCCProfile():
+	lst_hour = [] # 24 profiles for each hour
+	def __init__(self,hour, cc):
+		self.id =0 # future use 
+		self.hour = hour # [0..23] hour of day 
+		self.pow_charge_max = 0  # [W]
+		self.pow_discharge_max = 0 # [W] (negative power value)
+	
+	""" configure all hours 
+		Y=* defaulting for all hours else use the hour of day [0..23]
+		- [CHARGE_CONTROL]/Id/X/Profile/Hour/Y/MaxChargePower  def:0 [W]
+		- [CHARGE_CONTROL]/Id/X/Profile/Hour/Y/MaxDischargePower  def:0 [W]
+
+	"""
+	@staticmethod
+	def cfg(ini):
+		def kpfx(hour : int,str_tail : str):
+			id = 0
+			return "Id/0/Profile/Hour/{}".format(hour,str_tail)
+		
+		pow_charge_max_def = ini.get_int('CHARGE_CONTROL',kpfx('*','MaxChargePower'),0)
+		pow_discharge_max_def = ini.get_int('CHARGE_CONTROL',kpfx('*','MaxDischargePower'),0)
+
+		for h in range(0,24):
+			cprof = CCCProfile(h)
+			cprof.pow_charge_max = ini.get_int('CHARGE_CONTROL',kpfx(str(h),'MaxChargePower'),pow_charge_max_def)
+			cprof.pow_discharge_max = ini.get_int('CHARGE_CONTROL',kpfx(str(h),'MaxDischargePower'),pow_discharge_max_def)
+			CCCProfile.lst_hour.append(cprof)
+		
+		CCCProfile.dump()
+			
+	def __str__(self):
+		lg.info('Charge-Profile:')
+		lg.info('{}[h] pCharge:{}[W] pDischarge:{}[W]'.format(self.hour,self.pow_charge_max,self.pow_discharge_max))
+	
+	@staticmethod
+	def poll(timeslice_sec):
+		pass
+
+	@staticmethod
+	def dump():
+		for cprof in CCCProfile.lst_hour:
+			str(cprof)
+	
 
 """
 BIC control and regulation class
@@ -721,8 +767,9 @@ class CChargeCtrlBase():
 			if self.ts_1min >59:
 				self.ts_1min = 0
 
+			#print(str(self.tmo_grid_sec))
 			if self.tmo_grid_sec >= 0:
-				self.tmo_grid_sec-1
+				self.tmo_grid_sec-=1
 				if self.tmo_grid_sec < 0:
 					self.on_cb_grid_power_tmo()
 		return
@@ -1022,8 +1069,8 @@ class CChargeCtrlPID(CChargeCtrlBase):
 			self.calc_power(grid_pow)
 
 
-	""" @audit try to fix the offset problem of my smart-meter at point zero
-		- this point is very unstable for the sign calculation
+	""" @audit-ok try to fix the offset problem of my smart-meter at point zero
+		- this point is very unstable (the sign calculation)
 		- try to fix the pid-regulator between the offset value:
 		-30 -20 0 0 0 +20 30
 		-       ^ ^ ^   offset:+-20 set all values between offset to zero
@@ -1226,7 +1273,7 @@ class App:
 		self.info['conCnt'] = mqttc.conn_cnt
 		return json.dumps(self.info, sort_keys=False, indent=4)
 
-# roundup 56->10
+# roundup 56->60
 def math_round_up(val):
 	return int(round(val,-1))
 
