@@ -1,4 +1,4 @@
-# meanwell-bic2mqtt (under construction)
+# meanwell-bic2mqtt
 Tool to control Power Supplys from Mean Well via MQTT
 
 was forked from https://github.com/stcan/meanwell-can-control <br>
@@ -52,7 +52,7 @@ Tested with the 24V Version BIC-2200-24-CAN<br>
        <value> = amps oder volts * 100 --> 25,66V = 2566 
 
 
-# Configuration file **Under Construction !!!** 
+# Configuration file ** Not stable !!! ** 
 
 Configuration File: bic2mqtt.ini
 
@@ -134,7 +134,13 @@ To control charging and discharging with this app.
 |sub | ini file: [CHARGE_CONTROL]Id/X/TopicPower | value [W] | Charge control: incoming grid power values as a raw value [W]|
 |sub | \<main-app>/inv/\<id>/control/set |  [0,1]    |  start stop charge-control, charging will be stoped on each toggle |
 
-        
+
+# Deploy
+ - Configure bic2mqtt.ini
+   - Configure your battery profile for SOC values
+   - Configure Device charge and discharge values for your bic device (be careful !!)   
+ - start bic2mqtt.py
+   
 # Examples        
 Example code to control battery charging and discharging with cbic2200.py depending on the electricity meter.
 
