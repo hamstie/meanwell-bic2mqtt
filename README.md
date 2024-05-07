@@ -52,7 +52,7 @@ Tested with the 24V Version BIC-2200-24-CAN<br>
        <value> = amps oder volts * 100 --> 25,66V = 2566 
 
 
-# Configuration file 
+# Configuration file for the MQTT-Bridge
 
 Configuration File: bic2mqtt.ini
 
@@ -143,7 +143,7 @@ To control charging and discharging with this app.
    - Configure Device charge and discharge values for your bic device (be careful !!)
    - Disable charge controller [CHARGE_CONTROL] Id/0/Enabled=0
  - Start bic2mqtt.py and test the limit of charging/discharging:publish some charge values by hand (topic:<main-app>/inv/0/charge/set)
- - After all enable the pid controller and configure the P-I-D parameter of the pid
+ - After all enable the pid controller and configure the P-I-D parameter (hot config is possible with cfgReload)
    
 # Examples        
 Example code to control battery charging and discharging with cbic2200.py depending on the electricity smart-meter grid-power.
