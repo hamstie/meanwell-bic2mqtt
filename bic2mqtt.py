@@ -1156,7 +1156,7 @@ class CChargeCtrlPID(CChargeCtrlBase):
 		if self.grid_power_dir_changed(grid_pow) is True:
 			lg.critical("CC grid power changed direction:pid reset")
 			self.reset()
-			new_calc_power=0
+			new_calc_pow=0
 		elif abs(tol_pow) > self.charge_pow_tol:
 			new_calc_pow = self.calc_pow + self.pid.step(grid_pow)
 			#new_calc_pow = charge_pow + self.pid.step(grid_pow)
