@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-APP_VER = "0.60"
+APP_VER = "0.61"
 APP_NAME = "bic2mqtt"
 
 """
  fst:05.04.2024 lst:06.05.2024
  Meanwell BIC2200-XXCAN to mqtt bridge
- V0.60 + charge profiles for each hour
+ V0.61 + charge profiles for each hour
  V0.53 ..fast pid reset if grid power changed the direction
  V0.52 -minimize eeprom write access (cfg tolerance & rounding)
 	   -audit grid-power tmo handling 
@@ -783,7 +783,7 @@ class CChargeCtrlBase():
 		return True
 
 	def reset(self):
-		lg.info('CC charge control reset:')
+		lg.info('CC charge control reset')
 		self.dev_bic.charge_set_idle() # reset to lowest charge value
 		self.calc_pow = 0
 
@@ -1156,7 +1156,8 @@ class CChargeCtrlPID(CChargeCtrlBase):
 		if self.grid_power_dir_changed(grid_pow) is True:
 			lg.critical("CC grid power changed direction:pid reset")
 			self.reset()
-			new_calc_pow=0
+			new_calc_pow = 0
+			charge_pow = 0
 		elif abs(tol_pow) > self.charge_pow_tol:
 			new_calc_pow = self.calc_pow + self.pid.step(grid_pow)
 			#new_calc_pow = charge_pow + self.pid.step(grid_pow)
@@ -1166,9 +1167,9 @@ class CChargeCtrlPID(CChargeCtrlBase):
 			return
 
 		# prevent, that the set values running away from the real bat-chargeing level, the charge power is limited
-		new_calc_pow=CChargeCtrlBase.clamp(new_calc_pow,charge_pow-200,charge_pow+200)
+		new_calc_pow=CChargeCtrlBase.clamp(new_calc_pow,charge_pow-100,charge_pow+100)
 		#use also the configured min/max one top
-		new_calc_pow=CChargeCtrlBase.clamp(new_calc_pow,self.pid.cfg_min, self.pid.cfg_max) 
+		new_calc_pow=CChargeCtrlBase.clamp(new_calc_pow,self.pid.cfg_min, self.pid.cfg_max)
 
 		# check and skip short discharge burst e.g. use the grid power for the tee-kettle
 		if new_calc_pow < 0:
