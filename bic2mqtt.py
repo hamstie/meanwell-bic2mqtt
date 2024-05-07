@@ -1145,18 +1145,19 @@ class CChargeCtrlPID(CChargeCtrlBase):
 	"""
 	def calc_power(self,grid_pow):
 
+	
 		is_running = super().calc_power(grid_pow)
 		if is_running is False:
 			return
 
 		charge_pow = self.dev_bic.charge['chargeP'] # charge power of the bat from real voltage and current of the bic
+		tol_pow=int(grid_pow - self.charge_pow_offset)
 
 		if self.grid_power_dir_changed(grid_pow) is True:
 			lg.critical("CC grid power changed direction:pid reset")
 			self.reset()
-
-		tol_pow=int(grid_pow - self.charge_pow_offset)
-		if abs(tol_pow) > self.charge_pow_tol:
+			new_calc_power=0
+		elif abs(tol_pow) > self.charge_pow_tol:
 			new_calc_pow = self.calc_pow + self.pid.step(grid_pow)
 			#new_calc_pow = charge_pow + self.pid.step(grid_pow)
 		else:
