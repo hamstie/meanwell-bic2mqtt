@@ -85,13 +85,11 @@ Configuration File: bic2mqtt.ini
 
 ## Section [BAT_0]
 
- - create a SOC list of the battery device to convert voltage to percent
+Create a SOC list of the battery device to convert voltage to percent
 
 |key                          | default value  | description   |
 |-----------------------------|----------------|-------------- |
-|Cap2V/X                      |                | Capacity to Voltage Value to create a SOC list of the bat device e.g Cap2V/45=20 means cap45% is 20V SO Volatge |
-
- Cap2V/0     =19.00
+|Cap2V/X                      |                | Capacity to Voltage Value to create a SOC list of the bat device e.g Cap2V/45=20 means cap45% is 20V SOC Volatge |
 
 
 ## Section [CHARGE_CONTROL]
@@ -148,6 +146,6 @@ To control charging and discharging with this app.
  - After all enable the pid controller and configure the P-I-D parameter of the pid
    
 # Examples        
-Example code to control battery charging and discharging with cbic2200.py depending on the electricity meter.
+Example code to control battery charging and discharging with cbic2200.py depending on the electricity smart-meter grid-power.
 
 **All scripts are without any warranty. Use at your own risk**
