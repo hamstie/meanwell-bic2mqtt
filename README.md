@@ -52,7 +52,7 @@ Tested with the 24V Version BIC-2200-24-CAN<br>
        <value> = amps oder volts * 100 --> 25,66V = 2566 
 
 
-# Configuration file ** Not stable !!! ** 
+# Configuration file 
 
 Configuration File: bic2mqtt.ini
 
@@ -94,6 +94,8 @@ Configuration File: bic2mqtt.ini
  Cap2V/0     =19.00
 
 
+## Section [CHARGE_CONTROL]
+
 To control charging and discharging with this app. 
 
 |key                          | default value           | description   |
@@ -112,6 +114,9 @@ To control charging and discharging with this app.
 |Id/X/Pid/P                   | def:1.0  [0..1.0]       | P-Factor                                                  |
 |Id/X/Pid/I                   | def:0.0  [0..1.0]       | I-Factor leave it zero for simple config                  |
 |Id/X/Pid/D                   | def:0.0  [0..1.0]       | D-Factor leave it zero for simple config                  |
+|Id/X/Profile/Hour/h/MaxChargePower    | def:0 [W]      | Charge profiles, per hour [0..23]    |
+|Id/X/Profile/Hour/h/MaxDischargePower |def:0 [W]       | Discharge profiles, per hour [0..23] |
+
 
 
 --------
@@ -138,8 +143,10 @@ To control charging and discharging with this app.
 # Deploy
  - Configure bic2mqtt.ini
    - Configure your battery profile for SOC values
-   - Configure Device charge and discharge values for your bic device (be careful !!)   
- - start bic2mqtt.py
+   - Configure Device charge and discharge values for your bic device (be careful !!)
+   - Disable charge controller [CHARGE_CONTROL] Id/0/Enabled=0
+ - Start bic2mqtt.py and test the limit of charging/discharging
+ - After all enable the pid controller and configure the P-I-D parameter of the pid
    
 # Examples        
 Example code to control battery charging and discharging with cbic2200.py depending on the electricity meter.
