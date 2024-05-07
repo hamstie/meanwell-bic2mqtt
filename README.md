@@ -124,8 +124,7 @@ To control charging and discharging with this app.
 # MQTT Topics
 
 - \<main-app> can be configured in ini-file
-
-**Under Construction !!!** 
+- hot config is possible
 
 |pub/sub   | topic                   | payload     | description   |
 |----------|-------------------------|-------------|-------------- |
@@ -134,7 +133,7 @@ To control charging and discharging with this app.
 |sub | \<main-app>/inv/\<id>/state/set   | [0,1]       | set inverter operating mode 1:on else off
 |pub | \<main-app>/inv/\<id>/charge      |             | 
 |pub | \<main-app>/inv/\<id>/fault       |             | json fault states of the inverter
-|sub | \<main-app>/inv/\<id>/charge/set  | {"var":[chargeA,chargeP],"val":[ampere or power]} |
+|sub | \<main-app>/inv/\<id>/charge/set  | {"var":[chargeA,chargeP],"val":[ampere or power]} | publish "var":"cfgReload" to reload configuration from ini-file 
 |pub | \<main-app>/sys/state/lwt       | [offline,running] | mqtt last will |
 |sub | ini file: [CHARGE_CONTROL]Id/X/TopicPower | value [W] | Charge control: incoming grid power values as a raw value [W]|
 |sub | \<main-app>/inv/\<id>/control/set |  [0,1]    |  start stop charge-control, charging will be stoped on each toggle |
@@ -145,7 +144,7 @@ To control charging and discharging with this app.
    - Configure your battery profile for SOC values
    - Configure Device charge and discharge values for your bic device (be careful !!)
    - Disable charge controller [CHARGE_CONTROL] Id/0/Enabled=0
- - Start bic2mqtt.py and test the limit of charging/discharging
+ - Start bic2mqtt.py and test the limit of charging/discharging:publish some charge values by hand (topic:<main-app>/inv/0/charge/set)
  - After all enable the pid controller and configure the P-I-D parameter of the pid
    
 # Examples        
