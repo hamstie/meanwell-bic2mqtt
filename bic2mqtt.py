@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-APP_VER = "0.61"
+APP_VER = "0.62"
 APP_NAME = "bic2mqtt"
 
 """
- fst:05.04.2024 lst:06.05.2024
+ fst:05.04.2024 lst:08.05.2024
  Meanwell BIC2200-XXCAN to mqtt bridge
+ V0.62 - parse program argument: ini file path and name
  V0.61 + charge profiles for each hour
  V0.53 ..fast pid reset if grid power changed the direction
  V0.52 -minimize eeprom write access (cfg tolerance & rounding)
@@ -34,7 +35,7 @@ APP_NAME = "bic2mqtt"
 """
 
 import logging
-#from logging.handlers import RotatingFileHandler
+#future use from logging.handlers import RotatingFileHandler
 
 from cmqtt import CMQTT
 from cbic2200 import CBic
@@ -47,9 +48,6 @@ import configparser
 from cavg import CMAvg
 
 import sys
-#import argparse
-#import os
-#import subprocess
 
 # later we modify this, using a config file
 MQTT_BROKER_ADR = "127.0.0.1" # mqtt broker ip-address
@@ -1377,7 +1375,11 @@ def mqtt_on_disconnect(mqtt,userdata, rc):
 """
 def main_init():
 	global ini
-	ini = CIni("./" + APP_NAME + '.ini')
+	fname_ini = "./" + APP_NAME + '.ini'
+	if len(sys.argv) >=2:
+		fname_ini = sys.argv[1]
+		print("{} set ini file name:{}".format(sys.argv[0],fname_ini))
+	ini = CIni(fname_ini)
 
 	global lg
 	tl = logging.INFO
