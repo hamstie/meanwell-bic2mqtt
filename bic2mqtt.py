@@ -368,7 +368,6 @@ class CBicDevBase():
 		lg.info("init " + str(self))
 		#dischargedelay = int(config.get('Settings', 'DischargeDelay'))
 
-
 	def __str__(self):
 		return "dev id:{} cfg-cv:{} cfg-dv:{} cc:{} cfg-dc:{}".format(self.id,self.cfg_max_vcharge100,self.cfg_min_vdischarge100,self.cfg_max_ccharge100,self.cfg_max_cdischarge100)
 
@@ -658,7 +657,7 @@ BIC control and regulation class
 class CChargeCtrlBase():
 
 	DEF_GRID_TMO_SEC = 320 # seconds to switch off bic-dev if we get no new gid-power values
-	DEF_BLOCK_TIME_DISCHARGE = 60
+	DEF_BLOCK_TIME_DISCHARGE = 60 # [s]
 
 	def __init__(self,dev_bic : CBicDevBase):
 		self.enabled = False # enabled
@@ -677,7 +676,7 @@ class CChargeCtrlBase():
 		self.avg_pow = CMAvg(3600*1000) #average calculation , store values for on hour
 		self.charge_pow_offset = 0 # [W] offset power for the calculation, move the zero point of power balance
 		self.charge_pow_tol = 10 # [W] don't set new charge value if the running one is nearby
-
+		# will be set later with the charge profile
 		self.charge_pow_max = 0 # [W] max charge power power value
 		self.discharge_pow_max = 0 # [W] min discharge power value, normaly a negative value
 
@@ -1070,8 +1069,8 @@ class CChargeCtrlPID(CChargeCtrlBase):
 
 	""" Charge Control Simple:
 		# not used @param dbkey-int [CHARGE_CONTROL]Id/X/Pid/ClockSec def:0
-		@param dbkey-int [CHARGE_CONTROL]Id/X/Pid/MaxChargePower def:400
-		@param dbkey-int [CHARGE_CONTROL]Id/X/Pid/MaxDischargePower def:-400
+		@param dbkey-int [CHARGE_CONTROL]Id/X/Pid/MaxChargePower def:400[W] (relative for each step)
+		@param dbkey-int [CHARGE_CONTROL]Id/X/Pid/MaxDischargePower def:-400[W] (relative for each step)
 		@param dbkey-float [CHARGE_CONTROL]Id/X/Pid/P def:1
 		@param dbkey-float [CHARGE_CONTROL]Id/X/Pid/I def:0
 		@param dbkey-float [CHARGE_CONTROL]Id/X/Pid/D def:0
