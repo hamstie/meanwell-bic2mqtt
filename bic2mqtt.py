@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-APP_VER = "0.62"
+APP_VER = "0.63"
 APP_NAME = "bic2mqtt"
 
 """
  fst:05.04.2024 lst:08.05.2024
  Meanwell BIC2200-XXCAN to mqtt bridge
  V0.62 - parse program argument: ini file path and name
+       - move charge min/max parameter from pid to base class
  V0.61 + charge profiles for each hour
  V0.53 ..fast pid reset if grid power changed the direction
  V0.52 -minimize eeprom write access (cfg tolerance & rounding)
@@ -667,6 +668,7 @@ class CChargeCtrlBase():
 		self.grid_pow = 0 # last grid power value
 		self.grid_pow_tmo = False # no new values from smart-meter
 		self.calc_pow = 0 # calculated power to set
+		
 		self.ts_1000ms=0 # timeslice 1000ms [ms]
 		self.ts_calc_sec=0 # timeslice for each calculation [s]
 		self.ts_calc_cfg=12 # timeslice cfg
@@ -675,6 +677,10 @@ class CChargeCtrlBase():
 		self.avg_pow = CMAvg(3600*1000) #average calculation , store values for on hour
 		self.charge_pow_offset = 0 # [W] offset power for the calculation, move the zero point of power balance
 		self.charge_pow_tol = 10 # [W] don't set new charge value if the running one is nearby
+
+		self.charge_pow_max = 0 # [W] max charge power power value
+		self.discharge_pow_max = 0 # [W] min discharge power value, normaly a negative value
+
 		self.discharge_block_tmo_cfg = CChargeCtrlBase.DEF_BLOCK_TIME_DISCHARGE
 		self.t_last_charge = datetime.now()
 
@@ -1064,8 +1070,8 @@ class CChargeCtrlPID(CChargeCtrlBase):
 
 	""" Charge Control Simple:
 		# not used @param dbkey-int [CHARGE_CONTROL]Id/X/Pid/ClockSec def:0
-		@param dbkey-int [CHARGE_CONTROL]Id/X/Pid/MaxChargePower def:0
-		@param dbkey-int [CHARGE_CONTROL]Id/X/Pid/MaxDischargePower def:0
+		@param dbkey-int [CHARGE_CONTROL]Id/X/Pid/MaxChargePower def:400
+		@param dbkey-int [CHARGE_CONTROL]Id/X/Pid/MaxDischargePower def:-400
 		@param dbkey-float [CHARGE_CONTROL]Id/X/Pid/P def:1
 		@param dbkey-float [CHARGE_CONTROL]Id/X/Pid/I def:0
 		@param dbkey-float [CHARGE_CONTROL]Id/X/Pid/D def:0
@@ -1079,8 +1085,8 @@ class CChargeCtrlPID(CChargeCtrlBase):
 		self.pid.cfg(
 			ini.get_int('CHARGE_CONTROL',kpfx('Pid/ClockSec'),0), # 0, means messure time between each step
 			self.charge_pow_offset,
-			ini.get_int('CHARGE_CONTROL',kpfx('Pid/MaxDischargePower'),0),
-			ini.get_int('CHARGE_CONTROL',kpfx('Pid/MaxChargePower'),0),
+			ini.get_int('CHARGE_CONTROL',kpfx('Pid/MaxDischargePower'),-400),
+			ini.get_int('CHARGE_CONTROL',kpfx('Pid/MaxChargePower'),400),
 			ini.get_float('CHARGE_CONTROL',kpfx('Pid/P'),1),
 			ini.get_float('CHARGE_CONTROL',kpfx('Pid/I'),0),
 			ini.get_float('CHARGE_CONTROL',kpfx('Pid/D'),0)
@@ -1167,14 +1173,14 @@ class CChargeCtrlPID(CChargeCtrlBase):
 		# prevent, that the set values running away from the real bat-chargeing level, the charge power is limited
 		new_calc_pow=CChargeCtrlBase.clamp(new_calc_pow,charge_pow-100,charge_pow+100)
 		#use also the configured min/max one top
-		new_calc_pow=CChargeCtrlBase.clamp(new_calc_pow,self.pid.cfg_min, self.pid.cfg_max)
+		new_calc_pow=CChargeCtrlBase.clamp(new_calc_pow,self.discharge_pow_max, self.charge_pow_max)
 
 		# check and skip short discharge burst e.g. use the grid power for the tee-kettle
 		if new_calc_pow < 0:
 			if self.discharge_blocking_state() is True:
 				new_calc_pow = 0
 				self.pid.reset()
-			elif self.pid.cfg_min >=0:
+			elif self.discharge_pow_max >=0:
 				lg.debug('CC no-discharge hour profile')
 
 		if abs(tol_pow) > self.charge_pow_tol:
@@ -1198,8 +1204,8 @@ class CChargeCtrlPID(CChargeCtrlBase):
 			if CCCProfile.hour_changed() is True:
 				cprof = CCCProfile.hour_get()
 				lg.info('new hour profile:' + str(cprof))
-				self.pid.cfg_min = cprof.pow_discharge_max
-				self.pid.cfg_max = cprof.pow_charge_max
+				self.discharge_pow_max = cprof.pow_discharge_max
+				self.charge_pow_max = cprof.pow_charge_max
 
 	def reset(self):
 		super().reset()
