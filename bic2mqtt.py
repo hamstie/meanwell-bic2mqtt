@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-APP_VER = "0.63"
+APP_VER = "0.64"
 APP_NAME = "bic2mqtt"
 
 """
- fst:05.04.2024 lst:08.05.2024
+ fst:05.04.2024 lst:14.05.2024
  Meanwell BIC2200-XXCAN to mqtt bridge
- V0.62 - parse program argument: ini file path and name
-       - move charge min/max parameter from pid to base class
- V0.61 + charge profiles for each hour
+ V0.64 -try2decrease eeprom writes if the bat is low or full
+ V0.62 -parse program argument: ini file path and name
+       -move charge min/max parameter from pid to base class
+ V0.61 +charge profiles for each hour
  V0.53 ..fast pid reset if grid power changed the direction
  V0.52 -minimize eeprom write access (cfg tolerance & rounding)
 	   -audit grid-power tmo handling 
@@ -24,15 +25,15 @@ APP_NAME = "bic2mqtt"
  V0.01 mqtt is running
  V0.00 No fuction yet, working on the app-frame
 
- @todo: P1: check what happened if the broker is unreachable
-	P4: (Toggling display string for MQTT-Dashboards: Power,Temp,Voltage..)
-	P2: CChargeProfiles for each hour: max charge/discharge and
-	P2: fast charge reset for big power gaps e.g from -600 -> 1k, stop charging faster
+ @todo:
+	P1: (Toggling display string for MQTT-Dashboards: Power,Temp,Voltage..)
+
 
  new feature:
- 	- set mqtt topic if the grid power reached < X [W], to start some consumer
+ 	- publish mqtt topic if the bat-charge power and set power diff reached threshold (bat is full, start some consumer)
 
  - EEPROM Write disable is possible since bic-firmware datecode:2402..
+
 """
 
 import logging
@@ -1170,7 +1171,7 @@ class CChargeCtrlPID(CChargeCtrlBase):
 			return
 
 		# prevent, that the set values running away from the real bat-chargeing level, the charge power is limited
-		new_calc_pow=CChargeCtrlBase.clamp(new_calc_pow,charge_pow-100,charge_pow+100)
+		new_calc_pow=CChargeCtrlBase.clamp(round(new_calc_pow,-1),round(charge_pow-100-1),round(charge_pow+100,-1))
 		#use also the configured min/max one top
 		new_calc_pow=CChargeCtrlBase.clamp(new_calc_pow,self.discharge_pow_max, self.charge_pow_max)
 
