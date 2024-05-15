@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-APP_VER = "0.64"
+APP_VER = "0.70"
 APP_NAME = "bic2mqtt"
 
 """
- fst:05.04.2024 lst:14.05.2024
+ fst:05.04.2024 lst:15.05.2024
  Meanwell BIC2200-XXCAN to mqtt bridge
+ V0.70 ...excessP,excessKWh calculation
  V0.64 -try2decrease eeprom writes if the bat is low or full
  V0.62 -parse program argument: ini file path and name
        -move charge min/max parameter from pid to base class
@@ -26,8 +27,8 @@ APP_NAME = "bic2mqtt"
  V0.00 No fuction yet, working on the app-frame
 
  @todo:
-	P1: (Toggling display string for MQTT-Dashboards: Power,Temp,Voltage..)
-
+	P4: (Toggling display string for MQTT-Dashboards: Power,Temp,Voltage..)
+	P1: + excessP excessKWh(24h), diff between chargePower and gridPower
 
  new feature:
  	- publish mqtt topic if the bat-charge power and set power diff reached threshold (bat is full, start some consumer)
