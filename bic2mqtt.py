@@ -5,7 +5,7 @@ APP_NAME = "bic2mqtt"
 """
  fst:05.04.2024 lst:15.05.2024
  Meanwell BIC2200-XXCAN to mqtt bridge
- V0.70 ...excessP,excessKWh calculation
+ V0.70 ...surplusP,surplusKWh calculation
  V0.64 -try2decrease eeprom writes if the bat is low or full
  V0.62 -parse program argument: ini file path and name
        -move charge min/max parameter from pid to base class
@@ -28,12 +28,13 @@ APP_NAME = "bic2mqtt"
 
  @todo:
 	P4: (Toggling display string for MQTT-Dashboards: Power,Temp,Voltage..)
-	P1: + excessP excessKWh(24h), diff between chargePower and gridPower
+	P1: + sureplusP surplusKWh(24h), diff between chargePower and gridPower
+	P2: -surplus > trashhold, publish datapoint 
 
  new feature:
  	- publish mqtt topic if the bat-charge power and set power diff reached threshold (bat is full, start some consumer)
 
- - EEPROM Write disable is possible since bic-firmware datecode:2402..
+ - EEPROM Write disable is possible since bic-firmware datecode:2402???
 
 """
 
@@ -205,15 +206,20 @@ class CBicDevBase():
 		self.state['dcBatV'] = 0 # bat voltage DV [V]
 		self.state['capBatPc'] = 0 # bat capacity [%]
 
-		self.avg_pow_charge = CMAvg(24*3600*1000) #average calculation or charged kWh
-		self.avg_pow_discharge = CMAvg(24*3600*1000) #average calculation or dischrged kWh
+		self.avg_pow_charge = CMAvg(24*3600*1000) #average calculation fr charged [kWh]
+		self.avg_pow_discharge = CMAvg(24*3600*1000) #average calculation of dischrged [kWh]
+		self.avg_pow_surplus = CMAvg(24*3600*1000) #average calculation of purplus power [kWh]
+
 		self.charge = {}
 		self.charge['chargeA'] = 0  # [A] discharge[-] charge[+]
-		self.charge['chargeP'] = 0  # [VA] discharge[-] charge[+]
+		self.charge['chargeP'] = 0  # [W] discharge[-] charge[+]
 		self.charge['chargeSetA'] = 0 # [A] configured and readed value [A]
-		self.charge['chargedKWh'] = 0 # charged kWh
-		self.charge['dischargedKWh'] = 0 # discharged kWh
+		self.charge['chargedKWh'] = 0 # charged [kWh] per 24h
+		self.charge['dischargedKWh'] = 0 # discharged [kWh] per 24h
+		self.charge['surplusP'] = 0 # surplus [VA] pos: battery can't consume all the grid power
+		self.charge['surplusKWh'] = 0 # surplus summing [kWh] per 24h (only positve values will be appended)
 		self.charge_pow_set = 0 # last setter of charge value from mqtt
+		self.charge_pow_surplus = 0 # [W] surplus calculation
 
 		self.fault = {} # dic of all fault-states
 
@@ -234,7 +240,7 @@ class CBicDevBase():
 		self.tmo_state_ms =  0 #timeslice update state
 		self.cfg_tmo_state_ms = 2000 #timeslice update state
 		self.tmo_charge_ms =  0 #timeslice update state
-		self.cfg_tmo_charge_ms = 2000 #timeslice update state
+		self.cfg_tmo_charge_ms = 2000 #timeslice update charge values
 
 
 	def stop(self):
@@ -256,19 +262,7 @@ class CBicDevBase():
 			jpl = json.dumps(self.info, sort_keys=False, indent=4)
 			global mqttc
 			mqttc.publish(MQTT_T_APP + '/inv/' + str(self.id) +  '/info',jpl,0,True) # retained
-
-	""" not used
-	def update_power(self):
-		if self.onl_mode > CBicDevBase.e_onl_mode_init:
-			volt = round(float(self.bic.vread()) / 100,2)
-			amp = round(float(self.bic.cread()) / 100,2)
-			pow =  round(amp * volt)
-			if pow >0:
-				self.avg_pow_charge.push_val(pow)
-			elif pow <0:
-				self.avg_pow_discharge.push_val(pow)
-	"""
-
+		return
 
 	# read from bic the voltage and battery parameter
  	# @topic-pub <main-app>/inv/<id>/state
@@ -321,12 +315,16 @@ class CBicDevBase():
 			self.charge['chargeA'] = round(amp,1)  	# bat [A] discharge[-] charge[+] ?
 			pow_w = round(amp * volt)
 			self.charge['chargeP'] = pow_w  # bat [VA] discharge[-] charge[+]
+			pow_surplus = self.charge_pow_set - pow_w
+			self.charge['surplusP'] = pow_surplus
 			cdir = self.bic.BIC_chargemode_read()
 			if cdir == CBic.e_charge_mode_charge:
 				amp = round((self.bic.charge_current(CBic.e_cmd_read) / 100),2)
 				self.avg_pow_charge.push_val(pow_w)
+				self.avg_pow_surplus.push_val(pow_surplus)
 				# W/ms -> kW/h
 				self.charge['chargedKWh'] = round(self.avg_pow_charge.sum_get(0,0)/(1E6*3600),1)
+				self.charge['surplusKWh'] = round(self.avg_pow_surplus.sum_get(0,0)/(1E6*3600),1)
 			else:
 				self.avg_pow_discharge.push_val(pow_w)
 				self.charge['dischargedKWh'] = round(self.avg_pow_discharge.sum_get(0,0) / (1E6*3600),1)
@@ -338,6 +336,7 @@ class CBicDevBase():
 			self.charge['chargeA'] = 0
 			self.charge['chargeP'] = 0
 			self.charge['chargeSetA'] = 0
+			self.charge['surplusP'] = 0
 
 		jpl = json.dumps(self.charge, sort_keys=False, indent=4)
 		global mqttc
