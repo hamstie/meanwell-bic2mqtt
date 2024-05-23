@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-APP_VER = "0.70"
+APP_VER = "0.71"
 APP_NAME = "bic2mqtt"
 
 """
- fst:05.04.2024 lst:15.05.2024
+ fst:05.04.2024 lst:23.05.2024
  Meanwell BIC2200-XXCAN to mqtt bridge
+ V0.71 -catch CAN write exception in reset function
  V0.70 ...surplusP,surplusKWh calculation
  V0.64 -try2decrease eeprom writes if the bat is low or full
  V0.62 -parse program argument: ini file path and name
@@ -493,9 +494,12 @@ class CBicDevBase():
 
 	# set charging to neutral position nearby 0.8A charging
 	def charge_set_idle(self):
-		self.bic.charge_current(CBic.e_cmd_write,self.cfg_min_ccharge100)
-		self.bic.discharge_current(CBic.e_cmd_write,self.cfg_min_cdischarge100)
-		self.bic.BIC_chargemode(CBic.e_charge_mode_charge)
+		try:
+			self.bic.charge_current(CBic.e_cmd_write,self.cfg_min_ccharge100)
+			self.bic.discharge_current(CBic.e_cmd_write,self.cfg_min_cdischarge100)
+			self.bic.BIC_chargemode(CBic.e_charge_mode_charge)
+		except Exception as err:
+			lg.error("dev can't set idle value:" + str(err))
 
 	def charge_set_pow(self,val_pow:int):
 		if self.charge_pow_set == val_pow:
