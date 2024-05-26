@@ -518,7 +518,7 @@ class CBic:
         self.can_send_msg([cmd_lb,cmd_hb])
         vr=self.can_receive_byte()
         if vr == val:
-            print("skip vr:{} val:{}".format(vr,val))   
+            #print("skip vr:{} val:{}".format(vr,val))   
             return val
 
         # set new value
