@@ -268,11 +268,14 @@ class CBic:
             raise TimeoutError()
         return str(msgr).split()
 
+    
     # receive function @reurn int value
     def can_receive(self):
         try:
             msgr_split = self.can_rcv_raw()
         except TimeoutError:
+            return None
+        if len(msg_split) < 12:
             return None
         #print(msgr_split)
         hexval = msgr_split[11] + msgr_split[10]
@@ -285,7 +288,8 @@ class CBic:
             msgr_split = self.can_rcv_raw()
         except TimeoutError:
             return None
-
+         if len(msg_split) < 11:
+            return None
         hexval = (msgr_split[10])
         #print (int(hexval,16))
         return int(hexval,16)
