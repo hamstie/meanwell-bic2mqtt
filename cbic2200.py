@@ -11,7 +11,7 @@
 # - variables plausibility check
 # - programming missing functions
 # - current and voltage maximum settings
-VER = "0.2.75"
+VER = "0.2.76"
 # steve 08.06.2023  Version 0.2.1
 # steve 10.06.2023  Version 0.2.2
 # macGH 15.06.2023  Version 0.2.3
@@ -41,6 +41,7 @@ VER = "0.2.75"
 #       + can_send_receive word(), skip useless eeprom writes and check the value with write read sequence
 #       - toggle-operation
 # hamstie 4.5.2024 catch index error if can read failed
+# hamstie 26.05.2024 Version 0.2.76 skip useless eeprom writes for the direction mode
 
 import os
 import can
@@ -154,7 +155,8 @@ class CBic:
     e_cmd_FAULT_STATUS =        0x0040 # fault status register
     e_cmd_READ_VIN =            0x0050 # AC voltage reading value
     e_cmd_READ_VOUT =           0x0060 # DC voltage reading value
-    e_cmd_READ_IOUT =           0x0061 # DC current reading value  
+    e_cmd_READ_IOUT =           0x0061 # DC current reading value
+    e_cmd_DIRECTION_CTRL =      0x0100 # charge discharge direcrion control
     e_cmd_REVERSE_VOUT_SET =    0x0120 # @notice: eeprom write
     e_cmd_REVERSE_IOUT_SET =    0x0130 # @notice: eeprom write
     # ....
@@ -509,9 +511,14 @@ class CBic:
         # Command Code 0x0100
         # Set Direction Charge
 
+        val = int(val)
+        self.can_send_receive_word(CBic.e_cmd_DIRECTION_CTRL,val)
+        return val
+        """
         commandhighbyte = 0x01
         commandlowbyte = 0x00
         self.can_send_msg([commandlowbyte, commandhighbyte,val])
+        """
 
     def BIC_chargemode_read(self):
         # print ("read charge/discharge mode")
