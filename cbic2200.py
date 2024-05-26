@@ -512,23 +512,27 @@ class CBic:
         # Set Direction Charge
 
         val = int(val)
-        self.can_send_receive_word(CBic.e_cmd_DIRECTION_CTRL,val)
+
+        cmd_hb,cmd_lb = get_high_low_byte(CBic.e_cmd_DIRECTION_CTRL)    
+        # check running value
+        self.can_send_msg([cmd_lb,cmd_hb])
+        vr=self.can_receive_byte()
+        if vr == val:
+            print("skip vr:{} val:{}".format(vr,val))   
+            return val
+
+        # set new value
+        self.can_send_msg([cmd_lb,cmd_hb,val])
+        self.write_cnt+=1
         return val
-        """
-        commandhighbyte = 0x01
-        commandlowbyte = 0x00
-        self.can_send_msg([commandlowbyte, commandhighbyte,val])
-        """
 
     def BIC_chargemode_read(self):
         # print ("read charge/discharge mode")
         # Command Code 0x0100
         # Read Direction charge/discharge
+        cmd_hb,cmd_lb = get_high_low_byte(CBic.e_cmd_DIRECTION_CTRL)    
 
-        commandhighbyte = 0x01
-        commandlowbyte = 0x00
-
-        self.can_send_msg([commandlowbyte, commandhighbyte])
+        self.can_send_msg([cmd_lb, cmd_hb])
         v = self.can_receive_byte()
         return v
 
