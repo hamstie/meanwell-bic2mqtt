@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-APP_VER = "0.71"
+APP_VER = "0.72"
 APP_NAME = "bic2mqtt"
 
 """
- fst:05.04.2024 lst:23.05.2024
+ fst:05.04.2024 lst:02.06.2024
  Meanwell BIC2200-XXCAN to mqtt bridge
+ V0.72 -exit on startup if bic dev access failed
  V0.71 -catch CAN write exception in reset function
  V0.70 ...surplusP,surplusKWh calculation
  V0.64 -try2decrease eeprom writes if the bat is low or full
@@ -413,8 +414,8 @@ class CBicDevBase():
 	def poll(self,timeslive_ms):
 
 		if  self.bic is None:
-			lg.warning('dev bic is not started')
-			return
+			lg.error('dev bic is not started')
+			os._exit(1)
 
 		def fault_check_update(force = False):
 			fault_update = self.bic.faultread()
