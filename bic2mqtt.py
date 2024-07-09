@@ -316,29 +316,32 @@ class CBicDevBase():
 	"""
 	def update_charge(self):
 		if self.onl_mode > CBicDevBase.e_onl_mode_init:
+			try:
+				volt = round(float(self.bic.vread()) / 100,2)
+				amp = round(float(self.bic.cread()) / 100,2)
+				self.state['dcBatV'] = round(volt,1) 	# bat voltage DV [V]
+				self.charge['chargeA'] = round(amp,1)  	# bat [A] discharge[-] charge[+] ?
+				pow_w = round(amp * volt)
+				self.charge['chargeP'] = pow_w  # bat [VA] discharge[-] charge[+]
+				pow_surplus = self.charge_pow_set - pow_w
+				self.charge['surplusP'] = pow_surplus
+				cdir = self.bic.BIC_chargemode_read()
+				if cdir == CBic.e_charge_mode_charge:
+					amp = round((self.bic.charge_current(CBic.e_cmd_read) / 100),2)
+					self.avg_pow_charge.push_val(pow_w)
+					self.avg_pow_surplus.push_val(pow_surplus)
+					# W/ms -> kW/h
+					self.charge['chargedKWh'] = round(self.avg_pow_charge.sum_get(0,0)/(1E6*3600),1)
+					self.charge['surplusKWh'] = round(self.avg_pow_surplus.sum_get(0,0)/(1E6*3600),1)
+				else:
+					self.avg_pow_discharge.push_val(pow_w)
+					self.charge['dischargedKWh'] = round(self.avg_pow_discharge.sum_get(0,0) / (1E6*3600),1)
+					amp = round((self.bic.discharge_current(CBic.e_cmd_read) / 100) * (-1),2)
 
-			volt = round(float(self.bic.vread()) / 100,2)
-			amp = round(float(self.bic.cread()) / 100,2)
-			self.state['dcBatV'] = round(volt,1) 	# bat voltage DV [V]
-			self.charge['chargeA'] = round(amp,1)  	# bat [A] discharge[-] charge[+] ?
-			pow_w = round(amp * volt)
-			self.charge['chargeP'] = pow_w  # bat [VA] discharge[-] charge[+]
-			pow_surplus = self.charge_pow_set - pow_w
-			self.charge['surplusP'] = pow_surplus
-			cdir = self.bic.BIC_chargemode_read()
-			if cdir == CBic.e_charge_mode_charge:
-				amp = round((self.bic.charge_current(CBic.e_cmd_read) / 100),2)
-				self.avg_pow_charge.push_val(pow_w)
-				self.avg_pow_surplus.push_val(pow_surplus)
-				# W/ms -> kW/h
-				self.charge['chargedKWh'] = round(self.avg_pow_charge.sum_get(0,0)/(1E6*3600),1)
-				self.charge['surplusKWh'] = round(self.avg_pow_surplus.sum_get(0,0)/(1E6*3600),1)
-			else:
-				self.avg_pow_discharge.push_val(pow_w)
-				self.charge['dischargedKWh'] = round(self.avg_pow_discharge.sum_get(0,0) / (1E6*3600),1)
-				amp = round((self.bic.discharge_current(CBic.e_cmd_read) / 100) * (-1),2)
-
-			self.charge['chargeSetA'] = amp # [A] configured and readed value [A]
+				self.charge['chargeSetA'] = amp # [A] configured and readed value [A]
+			except Exception as err:
+				lg.error("dev update can't read value:" + str(err))
+				return
 		else:
 			#self.state['dcBatV'] = 0
 			self.charge['chargeA'] = 0
