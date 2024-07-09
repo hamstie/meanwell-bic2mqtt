@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-APP_VER = "0.73"
+APP_VER = "0.74"
 APP_NAME = "bic2mqtt"
 
 """
  fst:05.04.2024 lst:09.07.2024
  Meanwell BIC2200-XXCAN to mqtt bridge
- V0.73 -Bugfix charge reset sign detection
+ V0.74 -Bugfix charge reset sign detection and value type
  V0.72 -exit on startup if bic dev access failed
  V0.71 -catch CAN write exception in reset function
  V0.70 ...surplusP,surplusKWh calculation
@@ -290,13 +290,18 @@ class CBicDevBase():
 		#print(str(self.state))
 
 		if self.onl_mode > CBicDevBase.e_onl_mode_init:
-			volt = round(float(self.bic.vread()) / 100,2)
-			amp = round(float(self.bic.cread()) / 100,2)
-			ac_grid = round(float(self.bic.acvread()) / 10,0)
+			try:
+				volt = round(float(self.bic.vread()) / 100,2)
+				amp = round(float(self.bic.cread()) / 100,2)
+				ac_grid = round(float(self.bic.acvread()) / 10,0)
 
-			self.state['acGridV'] = ac_grid	# grid-volatge [V]
-			self.state['dcBatV'] = volt 	# bat voltage DV [V]
-			self.state['capBatPc'] = self.bat.get_capacity_pc(volt)  	# bat capacity [%] , attach CBattery object
+				self.state['acGridV'] = ac_grid	# grid-volatge [V]
+				self.state['dcBatV'] = volt 	# bat voltage DV [V]
+				self.state['capBatPc'] = self.bat.get_capacity_pc(volt)  	# bat capacity [%] , attach CBattery object
+			except Exception as err:
+				lg.error("dev can't read value:" + str(err))
+				return
+
 		else:
 			self.state['acGridV'] = 0
 			self.state['dcBatV'] = 0
