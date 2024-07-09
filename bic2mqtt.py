@@ -849,6 +849,7 @@ class CChargeCtrlBase():
 		self.grid_pow_tmo = True
 		self.dev_bic.charge_set_idle() # reset to lowest charge value
 		self.calc_pow = 0
+		os._exit(2)
 		return
 
 
