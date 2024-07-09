@@ -11,7 +11,7 @@
 # - variables plausibility check
 # - programming missing functions
 # - current and voltage maximum settings
-VER = "0.2.76"
+VER = "0.2.77"
 # steve 08.06.2023  Version 0.2.1
 # steve 10.06.2023  Version 0.2.2
 # macGH 15.06.2023  Version 0.2.3
@@ -42,6 +42,7 @@ VER = "0.2.76"
 #       - toggle-operation
 # hamstie 4.5.2024 catch index error if can read failed
 # hamstie 26.05.2024 Version 0.2.76 skip useless eeprom writes for the direction mode
+# hamstie 09.07.2024 Version 0.2.77 catch value error 
 
 import os
 import can
@@ -278,9 +279,12 @@ class CBic:
         if len(msgr_split) < 12:
             return None
         #print(msgr_split)
-        hexval = msgr_split[11] + msgr_split[10]
+        try:
         #print (str(hexval))
-        return int(hexval,16)
+            hexval = int((msgr_split[11] + msgr_split[10]),16)
+        except ValueError:
+            return None
+        return hexval
 
     # receive function
     def can_receive_byte(self):
@@ -591,15 +595,18 @@ class CBic:
 
         # firmware version
 
-        self.can_send_msg([0x84,0x00])
-        self.d_info['firmRev'] = hex(self.can_receive()) # to bytes hexvalue mcu0 and mcu1
+        try:
+            self.can_send_msg([0x84,0x00])
+            self.d_info['firmRev'] = hex(self.can_receive()) # to bytes hexvalue mcu0 and mcu1
 
-        self.can_send_msg([0xC2,0x00])
-        self.d_info['sysCfg'] = hex(self.can_receive()) # to bytes hexvalue mcu0 and mcu1
+            self.can_send_msg([0xC2,0x00])
+            self.d_info['sysCfg'] = hex(self.can_receive()) # to bytes hexvalue mcu0 and mcu1
 
-        self.can_send_msg([0x40,0x01])
-        self.d_info['sysCfgBDir'] = hex(self.can_receive()) # bdir config bit 1
-        
+            self.can_send_msg([0x40,0x01])
+            self.d_info['sysCfgBDir'] = hex(self.can_receive()) # bdir config bit 1
+        except ValueError:
+            return None
+
         self.can_send_msg([0x86,0x00])
         self.d_info['manDate'] = str(self.can_receive_char()) # manufac. date
 
