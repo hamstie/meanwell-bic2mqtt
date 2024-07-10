@@ -637,7 +637,7 @@ class CCCProfile():
 			#print(str(kpfx(str(h),'MaxChargePower')))
 			cprof.pow_charge_max = ini.get_int('CHARGE_CONTROL',kpfx(str(h),'MaxChargePower'),pow_charge_max_def)
 			cprof.pow_discharge_max = ini.get_int('CHARGE_CONTROL',kpfx(str(h),'MaxDischargePower'),pow_discharge_max_def)
-			cprof.pow_grid_offset = ini.get_int('CHARGE_CONTROL',kpfx(str(h),'GridOffsetPower'),pow_grid_offset_deff)
+			cprof.pow_grid_offset = ini.get_int('CHARGE_CONTROL',kpfx(str(h),'GridOffsetPower'),pow_grid_offset_def)
 			pow_charge_max_def = cprof.pow_charge_max 
 			pow_discharge_max_def = cprof.pow_discharge_max
 			pow_grid_offset_def = cprof.pow_grid_offset
