@@ -102,7 +102,6 @@ To control charging and discharging with this app.
 |Id/X/TopicPower              | ""                      | subscribe topic for grid power values from the smart meter  <0:power to public-grid, >0 power-consumption from public.grid|
 |Id/X/TimeSliceCalcSec        | def:12 [s]              | time slice for each calculation loop (not used yet)       |
 |Id/X/DischargeBlockTimeSec   | def: 60[s]              | skip short discharge bursts                               |
-|Id/X/ChargePowerOffset       | def: 0[W]               | offset grid power for the calculation, move the zero point of power balance |
 |Id/X/ChargeTol               | def: 10[W]              | don't set new charge value if the running one is nearby   |
 |Id/0/LoopGain                | def:0.5                 | regulator loop gain (only for the simple charger )        |
 |Id/X/Pid/MaxChargePower      | def:400 [W]               | max charge power value (relative for each step) [W]                                |
@@ -112,6 +111,7 @@ To control charging and discharging with this app.
 |Id/X/Pid/D                   | def:0.0  [0..1.0]       | D-Factor leave it zero for simple config                  |
 |Id/X/Profile/Hour/h/MaxChargePower    | def:0 [W]      | Charge profiles, per hour [0..23]    |
 |Id/X/Profile/Hour/h/MaxDischargePower |def:0 [W]       | Discharge profiles, per hour [0..23] |
+|Id/X/Profile/Hour/h/GridOffsetPower   |def:0 [W]       | Grid(Smart-Meter) offset , per hour [0..23] |
 
 
 --------
