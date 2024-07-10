@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-APP_VER = "0.74"
+APP_VER = "0.75"
 APP_NAME = "bic2mqtt"
 
 """
- fst:05.04.2024 lst:09.07.2024
+ fst:05.04.2024 lst:10.07.2024
  Meanwell BIC2200-XXCAN to mqtt bridge
+ V0.75 -grid offset as profile value
  V0.74 -Bugfix charge reset sign detection and value type
  V0.72 -exit on startup if bic dev access failed
  V0.71 -catch CAN write exception in reset function
@@ -610,11 +611,13 @@ class CCCProfile():
 		self.hour = hour # [0..23] hour of day 
 		self.pow_charge_max = 0  # [W]
 		self.pow_discharge_max = 0 # [W] (negative power value)
+		self.pow_grid_offset = 0 # [W] # grid power offset  
 	
 	""" configure all hours 
 		Y=* defaulting for all hours else use the hour of day [0..23]
 		- [CHARGE_CONTROL]/Id/X/Profile/Hour/Y/MaxChargePower  def:0 [W]
 		- [CHARGE_CONTROL]/Id/X/Profile/Hour/Y/MaxDischargePower  def:0 [W]
+		- [CHARGE_CONTROL]/Id/X/Profile/Hour/Y/GridOffsetPower  def:0 [W] grid power offset, will be added to the power value of the smart meter
 
 	"""
 	@staticmethod
@@ -627,21 +630,24 @@ class CCCProfile():
 		CCCProfile.hour_now = -1 
 		pow_charge_max_def = 0 # ini.get_int('CHARGE_CONTROL',kpfx('*','MaxChargePower'),0)
 		pow_discharge_max_def = 0 # = ini.get_int('CHARGE_CONTROL',kpfx('*','MaxDischargePower'),0)
+		pow_grid_offset_def = 0
 
 		for h in range(0,24):
 			cprof = CCCProfile(h,None)
 			#print(str(kpfx(str(h),'MaxChargePower')))
 			cprof.pow_charge_max = ini.get_int('CHARGE_CONTROL',kpfx(str(h),'MaxChargePower'),pow_charge_max_def)
 			cprof.pow_discharge_max = ini.get_int('CHARGE_CONTROL',kpfx(str(h),'MaxDischargePower'),pow_discharge_max_def)
+			cprof.pow_grid_offset = ini.get_int('CHARGE_CONTROL',kpfx(str(h),'GridOffsetPower'),pow_grid_offset_deff)
 			pow_charge_max_def = cprof.pow_charge_max 
 			pow_discharge_max_def = cprof.pow_discharge_max
+			pow_grid_offset_def = cprof.pow_grid_offset
 			CCCProfile.lst_hour.append(cprof)
 		
 		CCCProfile.dump()
 		
 			
 	def __str__(self):
-		sret = '{}[h] pCharge:{}[W] pDischarge:{}[W]'.format(self.hour,self.pow_charge_max,self.pow_discharge_max)
+		sret = '{}[h] pCharge:{}[W] pDischarge:{}[W] pOffset:{}[W]'.format(self.hour,self.pow_charge_max,self.pow_discharge_max,self.pow_grid_offset)
 		return sret
 	
 	# @return true if the hour has changed
@@ -689,7 +695,7 @@ class CChargeCtrlBase():
 		self.ts_1min=0 # timeslive 1min [s]
 
 		self.avg_pow = CMAvg(3600*1000) #average calculation , store values for on hour
-		self.charge_pow_offset = 0 # [W] offset power for the calculation, move the zero point of power balance
+		self.pow_grid_offset = 0 # [W] offset power for the calculation, move the zero point of power balance
 		self.charge_pow_tol = 10 # [W] don't set new charge value if the running one is nearby
 		# will be set later with the charge profile
 		self.charge_pow_max = 0 # [W] max charge power power value
@@ -761,7 +767,7 @@ class CChargeCtrlBase():
 		self.ts_calc_cfg = ini.get_int('CHARGE_CONTROL',kpfx('TimeSliceCalcSec'),self.ts_calc_cfg)
 
 		self.discharge_block_tmo_cfg = ini.get_int('CHARGE_CONTROL',kpfx('DischargeBlockTimeSec'),CChargeCtrlBase.DEF_BLOCK_TIME_DISCHARGE)
-		self.charge_pow_offset = ini.get_int('CHARGE_CONTROL',kpfx('ChargePowerOffset'),self.charge_pow_offset)
+		self.pow_grid_offset = 0 # will be set via profile ini.get_int('CHARGE_CONTROL',kpfx('ChargePowerOffset'),self.pow_grid_offset)
 		self.charge_pow_tol = ini.get_int('CHARGE_CONTROL',kpfx('ChargeTol'),self.charge_pow_tol)
 		self.lst_discharge_block_hour[0] = ini.get_int('CHARGE_CONTROL',kpfx('DischargeBlockHourStart'),-1) # invalidate as default
 		self.lst_discharge_block_hour[1] = ini.get_int('CHARGE_CONTROL',kpfx('DischargeBlockHourStop'),-1) # invalidate as default
@@ -852,13 +858,12 @@ class CChargeCtrlBase():
 		self.tmo_grid_sec = CChargeCtrlBase.DEF_GRID_TMO_SEC
 		#lg.info('CC new grid power value {}[W]'.format(self.grid_pow))
 
-	# grid power smart meter timeout stop discharging ?
+	# grid power smart meter timeout reset charge/discharge level until new values arrived
 	def on_cb_grid_power_tmo(self):
 		lg.warning('CC grid power TMO')
 		self.grid_pow_tmo = True
-		self.dev_bic.charge_set_idle() # reset to lowest charge value
-		self.calc_pow = 0
-		os._exit(2)
+		self.reset()
+		#os._exit(2)
 		return
 
 
@@ -898,7 +903,7 @@ class CChargeCtrlSimple(CChargeCtrlBase):
 		#lg.info('CC new grid power value {} [W]'.format(self.grid_pow))
 		self.avg_pow.push_val(grid_pow)
 
-		lg.info('CC pGrid:{}[W] pGridAvg:1m:{} 2m:{} 5m:{} 1h:{} offs:{}[W]'.format(grid_pow,avg2min(1),avg2min(2),avg2min(5),avg2min(60),self.charge_pow_offset))
+		lg.info('CC pGrid:{}[W] pGridAvg:1m:{} 2m:{} 5m:{} 1h:{} offs:{}[W]'.format(grid_pow,avg2min(1),avg2min(2),avg2min(5),avg2min(60),self.pow_grid_offset))
 		if self.enabled is True:
 			self.calc_power(grid_pow)
 
@@ -915,7 +920,7 @@ class CChargeCtrlSimple(CChargeCtrlBase):
 			return
 
 		charge_pow = self.dev_bic.charge['chargeP']
-		grid_pow = self.avg_pow.avg_get(1*1000*60,-1) + self.charge_pow_offset # used avg grid power with offset
+		grid_pow = self.avg_pow.avg_get(1*1000*60,-1) + self.pow_grid_offset # used avg grid power with offset
 
 
 		new_calc_pow = math_round_up(charge_pow  + (grid_pow * self.cfg_loop_gain * (-1)))
@@ -948,8 +953,8 @@ class CChargeCtrlSimple(CChargeCtrlBase):
 				new_calc_pow = 0
 
 		print('d:{} tol:{}'.format((charge_pow - new_calc_pow),self.charge_pow_tol))
-		if abs(int(grid_pow - self.charge_pow_offset)) > self.charge_pow_tol:
-			lg.info('CC set new value: pGrid:{}[W] pBat:{}[W] pCalc:{}[W] pOfs:{}[W]'.format(grid_pow,charge_pow,new_calc_pow,self.charge_pow_offset))
+		if abs(int(grid_pow - self.pow_grid_offset)) > self.charge_pow_tol:
+			lg.info('CC set new value: pGrid:{}[W] pBat:{}[W] pCalc:{}[W] pOfs:{}[W]'.format(grid_pow,charge_pow,new_calc_pow,self.pow_grid_offset))
 			topic = self.dev_bic.top_inv + '/charge/set'
 			dpl = {"var":"chargeP"}
 			dpl['val'] = int(new_calc_pow)
@@ -957,7 +962,7 @@ class CChargeCtrlSimple(CChargeCtrlBase):
 			global mqttc
 			mqttc.publish(topic,json.dumps(dpl, sort_keys=False, indent=0),0,False) # no retain
 		else:
-			lg.info('CC const value: pGrid:{}[W] pBat:{}[W] pCal:{}[W] oOfs:{}[W]'.format(grid_pow,charge_pow,new_calc_pow,self.charge_pow_offset))
+			lg.info('CC const value: pGrid:{}[W] pBat:{}[W] pCal:{}[W] oOfs:{}[W]'.format(grid_pow,charge_pow,new_calc_pow,self.pow_grid_offset))
 		self.calc_power_set(new_calc_pow)
 		return
 
@@ -1099,7 +1104,7 @@ class CChargeCtrlPID(CChargeCtrlBase):
 		super().cfg(ini)
 		self.pid.cfg(
 			ini.get_int('CHARGE_CONTROL',kpfx('Pid/ClockSec'),0), # 0, means messure time between each step
-			self.charge_pow_offset,
+			self.pow_grid_offset,
 			ini.get_int('CHARGE_CONTROL',kpfx('Pid/MaxDischargePower'),-400),
 			ini.get_int('CHARGE_CONTROL',kpfx('Pid/MaxChargePower'),400),
 			ini.get_float('CHARGE_CONTROL',kpfx('Pid/P'),1),
@@ -1124,7 +1129,7 @@ class CChargeCtrlPID(CChargeCtrlBase):
 		#lg.info('CC new grid power value {} [W]'.format(self.grid_pow))
 		#grid_pow=self.sm_zero_tol(grid_pow)
 		self.avg_pow.push_val(grid_pow)
-		lg.info('CC pGrid:{}[W] pGridAvg:1m:{} 2m:{} 5m:{} 1h:{} offs:{}[W]'.format(grid_pow,avg2min(1),avg2min(2),avg2min(5),avg2min(60),self.charge_pow_offset))
+		lg.info('CC pGrid:{}[W] pGridAvg:1m:{} 2m:{} 5m:{} 1h:{} offs:{}[W]'.format(grid_pow,avg2min(1),avg2min(2),avg2min(5),avg2min(60),self.pow_grid_offset))
 		#grid_pow=self.sm_zero_tol(grid_pow)
 		if self.enabled is True:
 			self.calc_power(grid_pow)
@@ -1170,7 +1175,7 @@ class CChargeCtrlPID(CChargeCtrlBase):
 			return
 
 		charge_pow = self.dev_bic.charge['chargeP'] # charge power of the bat from real voltage and current of the bic
-		tol_pow=int(grid_pow - self.charge_pow_offset)
+		tol_pow=int(grid_pow - self.pow_grid_offset)
 
 		if self.grid_power_dir_changed(grid_pow) is True:
 			lg.critical("CC grid power changed direction:pid reset")
@@ -1199,7 +1204,7 @@ class CChargeCtrlPID(CChargeCtrlBase):
 				lg.debug('CC no-discharge hour profile')
 
 		if abs(tol_pow) > self.charge_pow_tol:
-			lg.info('CC set new value: pGrid:{}[W] pBat:{}[W] pCalcNew:{}[W] pOfs:{}[W]'.format(grid_pow,charge_pow,new_calc_pow,self.charge_pow_offset))
+			lg.info('CC set new value: pGrid:{}[W] pBat:{}[W] pCalcNew:{}[W] pOfs:{}[W]'.format(grid_pow,charge_pow,new_calc_pow,self.pow_grid_offset))
 			topic = self.dev_bic.top_inv + '/charge/set'
 			dpl = {"var":"chargeP"}
 			dpl['val'] = int(new_calc_pow)
@@ -1208,7 +1213,7 @@ class CChargeCtrlPID(CChargeCtrlBase):
 			mqttc.publish(topic,json.dumps(dpl, sort_keys=False, indent=0),0,False) # no retain
 			self.calc_power_set(new_calc_pow)
 		else:
-			lg.info('CC const value: pGrid:{}[W] pBat:{}[W] pCalcLast:{}[W] pOfs:{}[W]'.format(grid_pow,charge_pow,new_calc_pow,self.charge_pow_offset))
+			lg.info('CC const value: pGrid:{}[W] pBat:{}[W] pCalcLast:{}[W] pOfs:{}[W]'.format(grid_pow,charge_pow,new_calc_pow,self.pow_grid_offset))
 		self.calc_power_set(new_calc_pow)
 
 		return
@@ -1221,6 +1226,8 @@ class CChargeCtrlPID(CChargeCtrlBase):
 				lg.info('new hour profile:' + str(cprof))
 				self.discharge_pow_max = cprof.pow_discharge_max
 				self.charge_pow_max = cprof.pow_charge_max
+				self.pow_grid_offset = cprof.pow_grid_offset
+				self.pid.cfg_offset = cprof.pow_grid_offset
 
 	def reset(self):
 		super().reset()
