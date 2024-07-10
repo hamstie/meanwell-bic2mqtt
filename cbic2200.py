@@ -42,7 +42,7 @@ VER = "0.2.77"
 #       - toggle-operation
 # hamstie 4.5.2024 catch index error if can read failed
 # hamstie 26.05.2024 Version 0.2.76 skip useless eeprom writes for the direction mode
-# hamstie 09.07.2024 Version 0.2.77 catch value error 
+# hamstie 10.07.2024 Version 0.2.77 catch value error 
 
 import os
 import can
@@ -282,7 +282,7 @@ class CBic:
         try:
         #print (str(hexval))
             hexval = int((msgr_split[11] + msgr_split[10]),16)
-        except ValueError:
+        except (AttributeError, ValueError):
             return None
         return hexval
 
@@ -604,7 +604,7 @@ class CBic:
 
             self.can_send_msg([0x40,0x01])
             self.d_info['sysCfgBDir'] = hex(self.can_receive()) # bdir config bit 1
-        except ValueError:
+        except (AttributeError, ValueError):
             return None
 
         self.can_send_msg([0x86,0x00])
