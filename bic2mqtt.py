@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-APP_VER = "0.80"
+APP_VER = "0.81"
 APP_NAME = "bic2mqtt"
 
 """
  fst:05.04.2024 lst:17.07.2024
  Meanwell BIC2200-XXCAN to mqtt bridge
- V0.80 -surplus, used the grid power as power value
+ V0.81 -surplus, used the grid power as power value
  V0.75 -grid offset as profile value
  V0.74 -Bugfix charge reset sign detection and value type
  V0.72 -exit on startup if bic dev access failed
@@ -329,8 +329,8 @@ class CBicDevBase():
 					self.avg_pow_charge.push_val(pow_w)
 					self.avg_pow_discharge.push_val(0)
 					self.charge_saturation = self.charge_pow_set - pow_w
-					if self.charge_saturation >=100:
-						_pow_surplus = self.pow_last_grid_value
+					if (self.charge_saturation >=80) and (self.pow_last_grid_value <0):
+						_pow_surplus = abs(self.pow_last_grid_value)
 						self.avg_pow_surplus.push_val(_pow_surplus)
 					else:
 						self.avg_pow_surplus.push_val(0)	
