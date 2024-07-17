@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-APP_VER = "0.75"
+APP_VER = "0.76"
 APP_NAME = "bic2mqtt"
 
 """
- fst:05.04.2024 lst:10.07.2024
+ fst:05.04.2024 lst:17.07.2024
  Meanwell BIC2200-XXCAN to mqtt bridge
+ V0.80 -surplus, used the grid power as power value
  V0.75 -grid offset as profile value
  V0.74 -Bugfix charge reset sign detection and value type
  V0.72 -exit on startup if bic dev access failed
@@ -223,7 +224,9 @@ class CBicDevBase():
 		self.charge['surplusP'] = 0 # surplus [VA] pos: battery can't consume all the grid power
 		self.charge['surplusKWh'] = 0 # surplus summing [kWh] per 24h (only positve values will be appended)
 		self.charge_pow_set = 0 # last setter of charge value from mqtt
-		self.charge_pow_surplus = 0 # [W] surplus calculation
+		#self.charge_pow_surplus = 0 # [W] surplus calculation
+		self.charge_saturation = 0 # [W] level of chagre saturation, gap between set power and charge power, always positve
+		self.pow_last_grid_value = 0 # [W] last grid power value, only for statistics 
 
 		self.fault = {} # dic of all fault-states
 
@@ -247,12 +250,6 @@ class CBicDevBase():
 		self.cfg_tmo_charge_ms = 2000 #timeslice update charge values
 
 
-	def stop(self):
-		lg.warning("device stoped id:" + str(self.id))
-		self.charge_set_idle()
-		#self.bic.operation(0)
-		self.onl_mode = CBicDevBase.e_onl_mode_offline
-		self.update_state()
 
 	# read from bic some common stuff
 	# 	@topic-pub <main-app>/inv/<id>/info
@@ -324,21 +321,31 @@ class CBicDevBase():
 				self.charge['chargeA'] = round(amp,1)  	# bat [A] discharge[-] charge[+] ?
 				pow_w = round(amp * volt)
 				self.charge['chargeP'] = pow_w  # bat [VA] discharge[-] charge[+]
-				pow_surplus = self.charge_pow_set - pow_w
-				self.charge['surplusP'] = pow_surplus
+				_pow_surplus = 0
+	
 				cdir = self.bic.BIC_chargemode_read()
 				if cdir == CBic.e_charge_mode_charge:
 					amp = round((self.bic.charge_current(CBic.e_cmd_read) / 100),2)
 					self.avg_pow_charge.push_val(pow_w)
-					self.avg_pow_surplus.push_val(pow_surplus)
+					self.avg_pow_discharge.push_val(0)
+					self.charge_saturation = self.charge_pow_set - pow_w
+					if self.charge_saturation >=100:
+						_pow_surplus = self.pow_last_grid_value
+						self.avg_pow_surplus.push_val(_pow_surplus)
+					else:
+						self.avg_pow_surplus.push_val(0)	
 					# W/ms -> kW/h
 					self.charge['chargedKWh'] = round(self.avg_pow_charge.sum_get(0,0)/(1E6*3600),1)
 					self.charge['surplusKWh'] = round(self.avg_pow_surplus.sum_get(0,0)/(1E6*3600),1)
 				else:
+					self.charge_saturation = 0
 					self.avg_pow_discharge.push_val(pow_w)
+					self.avg_pow_charge.push_val(0)
+					self.avg_pow_surplus.push_val(0)
 					self.charge['dischargedKWh'] = round(self.avg_pow_discharge.sum_get(0,0) / (1E6*3600),1)
 					amp = round((self.bic.discharge_current(CBic.e_cmd_read) / 100) * (-1),2)
 
+				self.charge['surplusP'] = _pow_surplus
 				self.charge['chargeSetA'] = amp # [A] configured and readed value [A]
 			except Exception as err:
 				lg.error("dev update can't read value:" + str(err))
@@ -418,6 +425,12 @@ class CBicDevBase():
 		lg.info('dev id:{} started op:{} onl:{}'.format(self.id,op_mode,self.onl_mode))
 		#main_exit()
 
+	def stop(self):
+		lg.warning("device stoped id:" + str(self.id))
+		self.charge_set_idle()
+		#self.bic.operation(0)
+		self.onl_mode = CBicDevBase.e_onl_mode_offline
+		self.update_state()
 
 	# poll values from bic/inverter
 	# @topic-pub <main-app>/inv/<id>/fault
@@ -523,7 +536,9 @@ class CBicDevBase():
 		#print('calcP:' + str(val_pow) + ' amp:' + str(amp))
 		self.charge_set_amp(amp)
 
-
+	def grid_pow_set_value(self,int: pow_val):
+		self.pow_last_grid_value = pow_val
+		
 
 # device type 2200-24V CAN
 class CBicDev2200_24(CBicDevBase):
@@ -844,6 +859,7 @@ class CChargeCtrlBase():
 	def cb_mqtt_sub_power(self,mqttc,user_data,mqtt_msg):
 		try:
 			self.grid_pow = int(mqtt_msg.payload)
+			self.dev_bic.grid_pow_set_value(self.grid_pow)
 			self.tmo_grid_sec = CChargeCtrlBase.DEF_GRID_TMO_SEC
 			self.grid_pow_tmo = False
 			self.on_cb_grid_power(self.grid_pow)
