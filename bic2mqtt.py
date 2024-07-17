@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-APP_VER = "0.76"
+APP_VER = "0.80"
 APP_NAME = "bic2mqtt"
 
 """
@@ -536,7 +536,7 @@ class CBicDevBase():
 		#print('calcP:' + str(val_pow) + ' amp:' + str(amp))
 		self.charge_set_amp(amp)
 
-	def grid_pow_set_value(self,int: pow_val):
+	def grid_pow_set_value(self,pow_val :int):
 		self.pow_last_grid_value = pow_val
 		
 
