@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-APP_VER = "0.81"
+APP_VER = "0.90"
 APP_NAME = "bic2mqtt"
 
 """
- fst:05.04.2024 lst:17.07.2024
+ fst:05.04.2024 lst:18.07.2024
  Meanwell BIC2200-XXCAN to mqtt bridge
- V0.81 -surplus, used the grid power as power value
+ V0.90 ...Charge control for the winter
+ V0.81 released-surplus, used the grid power as power value
  V0.75 -grid offset as profile value
  V0.74 -Bugfix charge reset sign detection and value type
  V0.72 -exit on startup if bic dev access failed
@@ -19,22 +20,12 @@ APP_NAME = "bic2mqtt"
  V0.52 -minimize eeprom write access (cfg tolerance & rounding)
 	   -audit grid-power tmo handling 
  V0.51 -pid-charge control is running
- V0.33 -refresh info every hour
- V0.32 -bugfixing
- V0.31 -cleaning charger code
-		- op-mode 0->1 set charge to 0
-		+ discharge block interval
- V0.30 -charge control works
- V0.22 -charge control testing
- V0.10 charge and discharging is possible for device BIC2200-24-CAN
- V0.04 cbic2200 first tests
- V0.01 mqtt is running
- V0.00 No fuction yet, working on the app-frame
+ ....
 
  @todo:
 	P4: (Toggling display string for MQTT-Dashboards: Power,Temp,Voltage..)
-	P1: + sureplusP surplusKWh(24h), diff between chargePower and gridPower
-	P2: -surplus > trashhold, publish datapoint 
+	P2: Charge control for the winter
+	
 
  new feature:
  	- publish mqtt topic if the bat-charge power and set power diff reached threshold (bat is full, start some consumer)
@@ -201,7 +192,7 @@ class CBicDevBase():
 
 		self.info = {}
 		self.info['id'] = int(self.id) # append some info from bic dump
-
+	
 		self.state = {}
 		self.state['onlMode'] = CBicDevBase.s_onl_mode[self.onl_mode]
 		self.state['opMode'] = 0  # device operating mode
@@ -258,6 +249,8 @@ class CBicDevBase():
 			dinf=self.bic.dump()
 			if dinf is not None:
 				self.info.update(dinf)
+				if self.cc is not None:
+					self.info['ChargeCtrlName'] = str(self.cc.obj_name)
 			#lg.info(str(self.info))
 
 			jpl = json.dumps(self.info, sort_keys=False, indent=4)
@@ -699,6 +692,7 @@ class CChargeCtrlBase():
 		self.enabled = False # enabled
 		self.dev_bic = dev_bic # device2 control
 		self.id = dev_bic.id
+		self.obj_name = "ChargeBase" # to display the name in mqtt
 		self.tmo_grid_sec = CChargeCtrlBase.DEF_GRID_TMO_SEC # grid tmo timer
 		self.grid_pow = 0 # last grid power value
 		self.grid_pow_tmo = False # no new values from smart-meter
@@ -883,6 +877,77 @@ class CChargeCtrlBase():
 		return
 
 
+
+"""
+BIC control and regulation class
+- usefull for preservation the battery voltage in winter time
+- define min/max capacity, start charging <=min and charge until max capacity
+- check temperature of the bic and charge only if it is highter than...
+- cfg: charge-power value, min/max capacity, min temperature
+"""
+class CChargeCtrlWinter(CChargeCtrlBase):
+
+	def __init__(self,dev_bic : CBicDevBase):
+		super().__init__(dev_bic)
+		self.obj_name = "ChargeWinter" # to display the name in mqtt
+		
+
+	""" Charge Control Winter: @todo
+	"""
+	def cfg(self,ini,reload = False):
+
+		def kpfx(str_tail : str):
+			return "Id/{}/{}".format(self.id,str_tail)
+
+		super().cfg(ini)
+		self.cfg_loop_gain = round(ini.get_float('CHARGE_CONTROL',kpfx('LoopGain'),self.cfg_loop_gain),1)
+
+	""" received a new value from the grid power sensor
+		don't used it for the winter
+	"""
+	def on_cb_grid_power(self,grid_pow):
+		# nothing todo
+		pass
+		#super().on_cb_grid_power(grid_pow)
+		
+
+	""" simple charge discharge control:
+		-triiger this function from app-poll ?
+		- check min/max capacity
+		- @todo: implement state machine
+	"""
+	def calc_power(self,grid_pow):
+
+		is_running = super().calc_power(grid_pow)
+		if is_running is False:
+			return
+
+		charge_pow = self.dev_bic.charge['chargeP']
+		
+		new_calc_pow = 0
+
+		POW_LIMIT = 800
+		new_cal_pow=CChargeCtrlBase.clamp(new_cal_pow,-POW_LIMIT,POW_LIMIT)
+
+		
+		if True:
+			lg.info('CC set new value: pGrid:{}[W] pBat:{}[W] pCalc:{}[W] pOfs:{}[W]'.format(grid_pow,charge_pow,new_calc_pow,self.pow_grid_offset))
+			topic = self.dev_bic.top_inv + '/charge/set'
+			dpl = {"var":"chargeP"}
+			dpl['val'] = int(new_calc_pow)
+			#print("top:{} pl:{}".format(topic,str(dpl)))
+			global mqttc
+			mqttc.publish(topic,json.dumps(dpl, sort_keys=False, indent=0),0,False) # no retain
+		self.calc_power_set(new_calc_pow)
+		return
+
+
+	def poll(self,timeslice_ms):
+		super().poll(timeslice_ms)
+		self.calc_power(0)
+
+
+
 """
 BIC control and regulation class
 - simple one charge and discharge depends on power grid value
@@ -892,7 +957,7 @@ class CChargeCtrlSimple(CChargeCtrlBase):
 	def __init__(self,dev_bic : CBicDevBase):
 		super().__init__(dev_bic)
 		self.cfg_loop_gain = 0.5 # regulator loop gain for new values
-
+		self.obj_name = "ChargeSimple"
 
 	""" Charge Control Simple:
 	"""
@@ -1102,6 +1167,7 @@ class CChargeCtrlPID(CChargeCtrlBase):
 		self.pid = CPID() # pid regulator
 		self.cfg_loop_gain = 0.5 # regulator loop gain for new values
 		self.grid_pow_last = 0 # grid power value t-1
+		self.obj_name = "ChargePID"
 
 
 	""" Charge Control Simple:
@@ -1312,6 +1378,7 @@ class App:
 					msg.cb_user_data = dev
 					mqttc.append_subscribe(msg)
 				
+			#dev.cc = CChargeCtrlWinter(dev)
 			#dev.cc = CChargeCtrlSimple(dev)
 			dev.cc = CChargeCtrlPID(dev)
 			dev.cc.cfg(ini)
