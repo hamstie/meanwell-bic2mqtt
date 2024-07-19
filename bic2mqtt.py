@@ -886,13 +886,27 @@ BIC control and regulation class
 - cfg: charge-power value, min/max capacity, min temperature
 """
 class CChargeCtrlWinter(CChargeCtrlBase):
+	eSM_ChageCtrlUnknown	= 0 # unknown
+	eSM_ChageCtrlStartDelay	= 1 # app start, check capacity of the bat first
+	eSM_ChageCtrlDischarge 	= 2 # discharge, if capacity is higher than maxCapacity
+	eSM_ChageCtrlCharge		= 3 # capacity is lower than maxCapacity
+	eSM_ChageCtrlStoped		= 4 # capacity is bweteen minCapacity and maxCapacity
+
+	MIN_TEMP_C = 10 # minimum temperature [C]
+
+	sCharge = ['----','Start','Discharge','Charge','Stoped'] # enum to string
 
 	def __init__(self,dev_bic : CBicDevBase):
 		super().__init__(dev_bic)
 		self.obj_name = "ChargeWinter" # to display the name in mqtt
-		
+		self.sm =  CChargeCtrlWinter.eSM_ChageCtrlStartDelay
+		self.sm_tmo_delay_sec = 120 # [s] timer to sleep,delay the state machine
+		self.cfg_min_temp_c = MIN_TEMP_C # minimum temperature [C] for charging
+		self.cfg_min_cap_pc = 30 # min. bat capacity [%], < goto state charge
+		self.cfg_max_cap_pc = 50 # max. allow  bat capacity [%], > goto discharge
+		self.cfg_const_pow = 200 # charge discharge power [W]
 
-	""" Charge Control Winter: @todo
+	""" Charge Control Winter: @todo cfg
 	"""
 	def cfg(self,ini,reload = False):
 
@@ -910,6 +924,26 @@ class CChargeCtrlWinter(CChargeCtrlBase):
 		pass
 		#super().on_cb_grid_power(grid_pow)
 		
+	def check_delay_waiting(self):
+		if self.sm_tmo_delay_sec >=0:
+			self.sm_tmo_delay_sec-=1
+			return True
+		else:
+			self.sm_tmo_delay_sec=-1
+			return False
+
+	# check temperature value for charging
+	def check_temp_ok(self):
+		temp_c = -256
+		try:
+			temp_c = int(self.dev_bic.state['tempC']) 
+			if temp_c > self.cfg_min_temp_c:
+				return True
+		except:
+			pass	
+		lg.critical('temperature to low, waiting t:{}[C]'.format(temp_c))
+		return False
+
 
 	""" simple charge discharge control:
 		-triiger this function from app-poll ?
@@ -925,9 +959,41 @@ class CChargeCtrlWinter(CChargeCtrlBase):
 		charge_pow = self.dev_bic.charge['chargeP']
 		
 		new_calc_pow = 0
+		
+		if self.sm == CChargeCtrlWinter.eSM_ChageCtrlUnknown:
+			raise RuntimeError('wrong sm-state:' + str(self.sm))
+		elif self.sm == CChargeCtrlWinter.eSM_ChageCtrlStartDelay: # app start, check capacity of the bat first
+			if self.check_delay_waiting() is True:
+				return
+			# start delay reached check temp and voltage
+			if self.check_temp_ok() is False:
+				return 
+			# temp ok, check bat capactity
+			cap_bat_pc = int(self.dev_bic.state['capBatPc'])
+			new_pow = 0
+			if cap_bat_pc > self.cfg_max_cap_pc:
+				self.sm = CChargeCtrlWinter.eSM_ChageCtrlDischarge
+				new_pow = abs(self.cfg_const_pow) * (-1)
+			elif cap_bat_pc <= self.cfg_min_cap_pc: 
+				self.sm = CChargeCtrlWinter.eSM_ChageCtrlCharge # discharge, if capacity is higher than maxCapacity
+				new_pow = abs(self.cfg_const_pow) * (+1)
+			else:
+				self.sm = CChargeCtrlWinter.eSM_ChageCtrlStopd # bat-cap level is ok	
+				new_pow = 0
+			lg.info('bat cap:{}[%] new state:'.format(cap_bat_pc,CChargeCtrlWinter.sCharge[self.sm]))
 
-		POW_LIMIT = 800
-		new_cal_pow=CChargeCtrlBase.clamp(new_cal_pow,-POW_LIMIT,POW_LIMIT)
+		elif self.sm == CChargeCtrlWinter.eSM_ChageCtrlCharge: # capacity is lower than maxCapacity
+			pass
+		elif self.sm == CChargeCtrlWinter.eSM_ChageCtrlDischarge: # capacity is lower than maxCapacity
+			pass
+		elif self.sm == CChargeCtrlWinter.eSM_ChageCtrlStoped:	# capacity is bweteen minCapacity and maxCapacity
+			pass
+		else:
+			raise RuntimeError('wrong sm-state:' + str(self.sm))
+
+
+		new_calc_pow=CChargeCtrlBase.clamp(new_calc_pow,self.discharge_pow_max, self.charge_pow_max)
+
 
 		
 		if True:
@@ -941,7 +1007,7 @@ class CChargeCtrlWinter(CChargeCtrlBase):
 		self.calc_power_set(new_calc_pow)
 		return
 
-
+	# assume 1sec. slice
 	def poll(self,timeslice_ms):
 		super().poll(timeslice_ms)
 		self.calc_power(0)
