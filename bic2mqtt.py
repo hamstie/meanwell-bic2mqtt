@@ -743,7 +743,7 @@ class CChargeCtrlBase():
 
 	ini file config parameter
 	@param dbkey-str [CHARGE_CONTROL]Id/X/TopicPower def:"" topic to subscribe power values from smart meter [W] <0:power to public-grid, >0 power-consumption from public.grid
-	@param dbkey-int [CHARGE_CONTROL]Id/X/Enabled def:1 if it is defined  in ini -> enabled
+	@param dbkey-int [CHARGE_CONTROL]Id/X/Type def:"PID" possible controller [None,Winter,PID]
 	not used yet @param dbkey-int [CHARGE_CONTROL]Id/X/TimeSliceCalcSec def:12[s] timeslice for each calculation [s]
 
 	@param dbkey-int [CHARGE_CONTROL]Id/X/DischargeBlockTimeSec def: 60[s] skip short discharge bursts
@@ -769,10 +769,7 @@ class CChargeCtrlBase():
 		else:
 			self.reset()
 
-
-		_enabled = ini.get_int('CHARGE_CONTROL',kpfx('Enabled'),0)
-		if _enabled >0:
-			self.enabled = True
+		self.enabled = True
 		self.ts_calc_cfg = ini.get_int('CHARGE_CONTROL',kpfx('TimeSliceCalcSec'),self.ts_calc_cfg)
 
 		self.discharge_block_tmo_cfg = ini.get_int('CHARGE_CONTROL',kpfx('DischargeBlockTimeSec'),CChargeCtrlBase.DEF_BLOCK_TIME_DISCHARGE)
@@ -820,7 +817,7 @@ class CChargeCtrlBase():
 		self.dev_bic.charge_set_idle() # reset to lowest charge value
 		self.calc_pow = 0
 
-	def enable(self,enable):
+	def enable(self,enable :bool):
 		self.enabled=enable
 		lg.info('CC charge control enable:' +str(enable))
 		self.reset()
@@ -908,10 +905,10 @@ class CChargeCtrlWinter(CChargeCtrlBase):
 		self.cfg_const_pow = 200 # charge discharge power [W]
 
 	""" Charge Control Winter: cfg
-	    @param dbkey-int [CHARGE_CONTROL]Id/X/WinterChargeP def:200W [VA]
-		@param dbkey-int [CHARGE_CONTROL]Id/X/WinterTempMin def:10 [C]
-		@param dbkey-int [CHARGE_CONTROL]Id/X/WinterCapMin def:20 [%]
-		@param dbkey-int [CHARGE_CONTROL]Id/X/WinterCapMax def:50 [%]
+	    @param dbkey-int [CHARGE_CONTROL]Id/X/Winter/ChargeP def:200W [VA]
+		@param dbkey-int [CHARGE_CONTROL]Id/X/Winter/TempMin def:10 [C]
+		@param dbkey-int [CHARGE_CONTROL]Id/X/Winter/CapMin def:20 [%]
+		@param dbkey-int [CHARGE_CONTROL]Id/X/Winter/CapMax def:50 [%]
 	"""
 	def cfg(self,ini,reload = False):
 
@@ -919,10 +916,10 @@ class CChargeCtrlWinter(CChargeCtrlBase):
 			return "Id/{}/{}".format(self.id,str_tail)
 
 		super().cfg(ini)
-		self.cfg_min_temp_c = ini.get_int('CHARGE_CONTROL',kpfx('WinterTempMin'),CChargeCtrlWinter.MIN_TEMP_C)
-		self.cfg_const_pow = ini.get_int('CHARGE_CONTROL',kpfx('WinterChargeP'),200)
-		self.cfg_min_cap_pc = ini.get_int('CHARGE_CONTROL',kpfx('WinterCapMin'),20)
-		self.cfg_max_cap_pc = ini.get_int('CHARGE_CONTROL',kpfx('WinterCapMax'),50)
+		self.cfg_min_temp_c = ini.get_int('CHARGE_CONTROL',kpfx('Winter/TempMin'),CChargeCtrlWinter.MIN_TEMP_C)
+		self.cfg_const_pow = ini.get_int('CHARGE_CONTROL',kpfx('Winter/ChargeP'),200)
+		self.cfg_min_cap_pc = ini.get_int('CHARGE_CONTROL',kpfx('Winter/CapMin'),20)
+		self.cfg_max_cap_pc = ini.get_int('CHARGE_CONTROL',kpfx('Winter/CapMax'),50)
 
 	""" received a new value from the grid power sensor
 		don't used it for the winter
@@ -1468,9 +1465,15 @@ class App:
 					msg.cb_user_data = dev
 					mqttc.append_subscribe(msg)
 
-			#dev.cc = CChargeCtrlWinter(dev)
-			#dev.cc = CChargeCtrlSimple(dev)
+		cc_type = ini.get_str('CHARGE_CONTROL','Id/{}/Type'.format(id),"PID").lower()
+		if dev_type == 'pid':
 			dev.cc = CChargeCtrlPID(dev)
+		elif dev_type == 'winter':
+			dev.cc = CChargeCtrlWinter(dev)
+			#dev.cc = CChargeCtrlSimple(dev)
+		else:
+			dev.cc = None
+		if dev.cc is not None:
 			dev.cc.cfg(ini)
 
 	""" set charging parameter
