@@ -18,14 +18,14 @@ APP_NAME = "bic2mqtt"
  V0.61 +charge profiles for each hour
  V0.53 ..fast pid reset if grid power changed the direction
  V0.52 -minimize eeprom write access (cfg tolerance & rounding)
-	   -audit grid-power tmo handling 
+	   -audit grid-power tmo handling
  V0.51 -pid-charge control is running
  ....
 
  @todo:
 	P4: (Toggling display string for MQTT-Dashboards: Power,Temp,Voltage..)
 	P2: Charge control for the winter
-	
+
 
  new feature:
  	- publish mqtt topic if the bat-charge power and set power diff reached threshold (bat is full, start some consumer)
@@ -192,7 +192,7 @@ class CBicDevBase():
 
 		self.info = {}
 		self.info['id'] = int(self.id) # append some info from bic dump
-	
+
 		self.state = {}
 		self.state['onlMode'] = CBicDevBase.s_onl_mode[self.onl_mode]
 		self.state['opMode'] = 0  # device operating mode
@@ -217,7 +217,7 @@ class CBicDevBase():
 		self.charge_pow_set = 0 # last setter of charge value from mqtt
 		#self.charge_pow_surplus = 0 # [W] surplus calculation
 		self.charge_saturation = 0 # [W] level of chagre saturation, gap between set power and charge power, always positve
-		self.pow_last_grid_value = 0 # [W] last grid power value, only for statistics 
+		self.pow_last_grid_value = 0 # [W] last grid power value, only for statistics
 
 		self.fault = {} # dic of all fault-states
 
@@ -315,7 +315,7 @@ class CBicDevBase():
 				pow_w = round(amp * volt)
 				self.charge['chargeP'] = pow_w  # bat [VA] discharge[-] charge[+]
 				_pow_surplus = 0
-	
+
 				cdir = self.bic.BIC_chargemode_read()
 				if cdir == CBic.e_charge_mode_charge:
 					amp = round((self.bic.charge_current(CBic.e_cmd_read) / 100),2)
@@ -326,7 +326,7 @@ class CBicDevBase():
 						_pow_surplus = abs(self.pow_last_grid_value)
 						self.avg_pow_surplus.push_val(_pow_surplus)
 					else:
-						self.avg_pow_surplus.push_val(0)	
+						self.avg_pow_surplus.push_val(0)
 					# W/ms -> kW/h
 					self.charge['chargedKWh'] = round(self.avg_pow_charge.sum_get(0,0)/(1E6*3600),1)
 					self.charge['surplusKWh'] = round(self.avg_pow_surplus.sum_get(0,0)/(1E6*3600),1)
@@ -531,7 +531,7 @@ class CBicDevBase():
 
 	def grid_pow_set_value(self,pow_val :int):
 		self.pow_last_grid_value = pow_val
-		
+
 
 # device type 2200-24V CAN
 class CBicDev2200_24(CBicDevBase):
@@ -615,13 +615,13 @@ class CCCProfile():
 	lst_hour = [] # 24 profiles for each hour
 	hour_now = -1 # actual hour
 	def __init__(self,hour, cc):
-		self.id =0 # future use 
-		self.hour = hour # [0..23] hour of day 
+		self.id =0 # future use
+		self.hour = hour # [0..23] hour of day
 		self.pow_charge_max = 0  # [W]
 		self.pow_discharge_max = 0 # [W] (negative power value)
-		self.pow_grid_offset = 0 # [W] # grid power offset  
-	
-	""" configure all hours 
+		self.pow_grid_offset = 0 # [W] # grid power offset
+
+	""" configure all hours
 		Y=* defaulting for all hours else use the hour of day [0..23]
 		- [CHARGE_CONTROL]/Id/X/Profile/Hour/Y/MaxChargePower  def:0 [W]
 		- [CHARGE_CONTROL]/Id/X/Profile/Hour/Y/MaxDischargePower  def:0 [W]
@@ -633,9 +633,9 @@ class CCCProfile():
 		def kpfx(hour : int,str_tail : str):
 			id = 0
 			return "Id/0/Profile/Hour/{}/{}".format(hour,str_tail)
-		
+
 		CCCProfile.lst_hour.clear()
-		CCCProfile.hour_now = -1 
+		CCCProfile.hour_now = -1
 		pow_charge_max_def = 0 # ini.get_int('CHARGE_CONTROL',kpfx('*','MaxChargePower'),0)
 		pow_discharge_max_def = 0 # = ini.get_int('CHARGE_CONTROL',kpfx('*','MaxDischargePower'),0)
 		pow_grid_offset_def = 0
@@ -646,18 +646,18 @@ class CCCProfile():
 			cprof.pow_charge_max = ini.get_int('CHARGE_CONTROL',kpfx(str(h),'MaxChargePower'),pow_charge_max_def)
 			cprof.pow_discharge_max = ini.get_int('CHARGE_CONTROL',kpfx(str(h),'MaxDischargePower'),pow_discharge_max_def)
 			cprof.pow_grid_offset = ini.get_int('CHARGE_CONTROL',kpfx(str(h),'GridOffsetPower'),pow_grid_offset_def)
-			pow_charge_max_def = cprof.pow_charge_max 
+			pow_charge_max_def = cprof.pow_charge_max
 			pow_discharge_max_def = cprof.pow_discharge_max
 			pow_grid_offset_def = cprof.pow_grid_offset
 			CCCProfile.lst_hour.append(cprof)
-		
+
 		CCCProfile.dump()
-		
-			
+
+
 	def __str__(self):
 		sret = '{}[h] pCharge:{}[W] pDischarge:{}[W] pOffset:{}[W]'.format(self.hour,self.pow_charge_max,self.pow_discharge_max,self.pow_grid_offset)
 		return sret
-	
+
 	# @return true if the hour has changed
 	@staticmethod
 	def hour_changed():
@@ -677,7 +677,7 @@ class CCCProfile():
 		lg.info('Charge-Profile:')
 		for cprof in CCCProfile.lst_hour:
 			lg.info(str(cprof))
-	
+
 
 """
 BIC control and regulation class
@@ -697,7 +697,7 @@ class CChargeCtrlBase():
 		self.grid_pow = 0 # last grid power value
 		self.grid_pow_tmo = False # no new values from smart-meter
 		self.calc_pow = 0 # calculated power to set
-		
+
 		self.ts_1000ms=0 # timeslice 1000ms [ms]
 		self.ts_calc_sec=0 # timeslice for each calculation [s]
 		self.ts_calc_cfg=12 # timeslice cfg
@@ -901,12 +901,17 @@ class CChargeCtrlWinter(CChargeCtrlBase):
 		self.obj_name = "ChargeWinter" # to display the name in mqtt
 		self.sm =  CChargeCtrlWinter.eSM_ChageCtrlStartDelay
 		self.sm_tmo_delay_sec = 120 # [s] timer to sleep,delay the state machine
+		self.sm_tmo_messure_delay_sec = 120 # voltage messure delay for idle-bat volatage
 		self.cfg_min_temp_c = MIN_TEMP_C # minimum temperature [C] for charging
 		self.cfg_min_cap_pc = 30 # min. bat capacity [%], < goto state charge
 		self.cfg_max_cap_pc = 50 # max. allow  bat capacity [%], > goto discharge
 		self.cfg_const_pow = 200 # charge discharge power [W]
 
-	""" Charge Control Winter: @todo cfg
+	""" Charge Control Winter: cfg
+	    @param dbkey-int [CHARGE_CONTROL]Id/X/WinterChargeP def:200W [VA]
+		@param dbkey-int [CHARGE_CONTROL]Id/X/WinterTempMin def:10 [C]
+		@param dbkey-int [CHARGE_CONTROL]Id/X/WinterCapMin def:20 [%]
+		@param dbkey-int [CHARGE_CONTROL]Id/X/WinterCapMax def:50 [%]
 	"""
 	def cfg(self,ini,reload = False):
 
@@ -914,7 +919,10 @@ class CChargeCtrlWinter(CChargeCtrlBase):
 			return "Id/{}/{}".format(self.id,str_tail)
 
 		super().cfg(ini)
-		self.cfg_loop_gain = round(ini.get_float('CHARGE_CONTROL',kpfx('LoopGain'),self.cfg_loop_gain),1)
+		self.cfg_min_temp_c = ini.get_int('CHARGE_CONTROL',kpfx('WinterTempMin'),CChargeCtrlWinter.MIN_TEMP_C)
+		self.cfg_const_pow = ini.get_int('CHARGE_CONTROL',kpfx('WinterChargeP'),200)
+		self.cfg_min_cap_pc = ini.get_int('CHARGE_CONTROL',kpfx('WinterCapMin'),20)
+		self.cfg_max_cap_pc = ini.get_int('CHARGE_CONTROL',kpfx('WinterCapMax'),50)
 
 	""" received a new value from the grid power sensor
 		don't used it for the winter
@@ -923,7 +931,7 @@ class CChargeCtrlWinter(CChargeCtrlBase):
 		# nothing todo
 		pass
 		#super().on_cb_grid_power(grid_pow)
-		
+
 	def check_delay_waiting(self):
 		if self.sm_tmo_delay_sec >=0:
 			self.sm_tmo_delay_sec-=1
@@ -936,13 +944,16 @@ class CChargeCtrlWinter(CChargeCtrlBase):
 	def check_temp_ok(self):
 		temp_c = -256
 		try:
-			temp_c = int(self.dev_bic.state['tempC']) 
+			temp_c = int(self.dev_bic.state['tempC'])
 			if temp_c > self.cfg_min_temp_c:
 				return True
 		except:
-			pass	
+			pass
 		lg.critical('temperature to low, waiting t:{}[C]'.format(temp_c))
+		self.sm_tmo_delay_sec = 60 * 10
 		return False
+
+
 
 
 	""" simple charge discharge control:
@@ -957,9 +968,12 @@ class CChargeCtrlWinter(CChargeCtrlBase):
 			return
 
 		charge_pow = self.dev_bic.charge['chargeP']
-		
+		cap_bat_pc = int(self.dev_bic.state['capBatPc'])
 		new_calc_pow = 0
-		
+
+		if App.ts_1min == 2:
+			lg.info('bat cap:{}[%] pCharge:{} state:{}'.format(cap_bat_pc,charge_pow,CChargeCtrlWinter.sCharge[self.sm]))
+
 		if self.sm == CChargeCtrlWinter.eSM_ChageCtrlUnknown:
 			raise RuntimeError('wrong sm-state:' + str(self.sm))
 		elif self.sm == CChargeCtrlWinter.eSM_ChageCtrlStartDelay: # app start, check capacity of the bat first
@@ -967,27 +981,37 @@ class CChargeCtrlWinter(CChargeCtrlBase):
 				return
 			# start delay reached check temp and voltage
 			if self.check_temp_ok() is False:
-				return 
+				return
 			# temp ok, check bat capactity
-			cap_bat_pc = int(self.dev_bic.state['capBatPc'])
+
 			new_pow = 0
 			if cap_bat_pc > self.cfg_max_cap_pc:
 				self.sm = CChargeCtrlWinter.eSM_ChageCtrlDischarge
-				new_pow = abs(self.cfg_const_pow) * (-1)
-			elif cap_bat_pc <= self.cfg_min_cap_pc: 
+				new_calc_pow = abs(self.cfg_const_pow) * (-1)
+			elif cap_bat_pc <= self.cfg_min_cap_pc:
 				self.sm = CChargeCtrlWinter.eSM_ChageCtrlCharge # discharge, if capacity is higher than maxCapacity
-				new_pow = abs(self.cfg_const_pow) * (+1)
+				new_calc_pow = abs(self.cfg_const_pow) * (+1)
 			else:
-				self.sm = CChargeCtrlWinter.eSM_ChageCtrlStopd # bat-cap level is ok	
-				new_pow = 0
-			lg.info('bat cap:{}[%] new state:'.format(cap_bat_pc,CChargeCtrlWinter.sCharge[self.sm]))
-
+				self.sm = CChargeCtrlWinter.eSM_ChageCtrlStopd # bat-cap level is ok
+				new_calc_pow = 0
+				self.sm_tmo_delay_sec=3600
+			lg.info('bat cap:{}[%] new state:{}'.format(cap_bat_pc,CChargeCtrlWinter.sCharge[self.sm]))
+			self.dev.charge_set_pow(new_calc_pow)
 		elif self.sm == CChargeCtrlWinter.eSM_ChageCtrlCharge: # capacity is lower than maxCapacity
-			pass
+			if (cap_bat_pc -10) >= self.cfg_max_cap_pc:
+				self.sm = CChargeCtrlWinter.eSM_ChageCtrlStartDelay
+				lg.info('Stop charging reached:{}[%]'.format(cap_bat_pc))
+				self.dev.charge_set_pow(0)
+				self.sm_tmo_delay_sec=3600
 		elif self.sm == CChargeCtrlWinter.eSM_ChageCtrlDischarge: # capacity is lower than maxCapacity
-			pass
+			if (cap_bat_pc-10) <= self.cfg_max_cap_pc:
+				self.sm = CChargeCtrlWinter.eSM_ChageCtrlStartDelay
+				lg.info('Stop discharging reached:{}[%]'.format(cap_bat_pc))
+				self.dev.charge_set_pow(0)
+				self.sm_tmo_delay_sec=3600
 		elif self.sm == CChargeCtrlWinter.eSM_ChageCtrlStoped:	# capacity is bweteen minCapacity and maxCapacity
-			pass
+			if self.check_delay_waiting() is False:
+				self.sm = CChargeCtrlWinter.eSM_ChageCtrlStartDelay
 		else:
 			raise RuntimeError('wrong sm-state:' + str(self.sm))
 
@@ -995,7 +1019,7 @@ class CChargeCtrlWinter(CChargeCtrlBase):
 		new_calc_pow=CChargeCtrlBase.clamp(new_calc_pow,self.discharge_pow_max, self.charge_pow_max)
 
 
-		
+
 		if True:
 			lg.info('CC set new value: pGrid:{}[W] pBat:{}[W] pCalc:{}[W] pOfs:{}[W]'.format(grid_pow,charge_pow,new_calc_pow,self.pow_grid_offset))
 			topic = self.dev_bic.top_inv + '/charge/set'
@@ -1046,7 +1070,7 @@ class CChargeCtrlSimple(CChargeCtrlBase):
 			return self.avg_pow.avg_get(minute*60*1000,-1)
 
 		super().on_cb_grid_power(grid_pow)
-		
+
 		#lg.info('CC new grid power value {} [W]'.format(self.grid_pow))
 		self.avg_pow.push_val(grid_pow)
 
@@ -1128,7 +1152,7 @@ class CChargeCtrlSimple(CChargeCtrlBase):
 class CPID :
 
 	def __init__(self):
-		self.cfg_dt  = 0 	# force time-between steps else it will be messured 
+		self.cfg_dt  = 0 	# force time-between steps else it will be messured
 		self.cfg_offset = 0 # const-offset
 		self.cfg_min = 0		# min allow value
 		self.cfg_max = 0		# max allow value
@@ -1153,7 +1177,7 @@ class CPID :
 			return round(val,1)
 
 		self.reset()
-		self.cfg_dt  = int(dt_sec) 	# >0 force this time-between steps 
+		self.cfg_dt  = int(dt_sec) 	# >0 force this time-between steps
 		self.cfg_offset = float(offset) # const-offset
 		self.cfg_min = float(vmin)	# min allow value
 		self.cfg_max = float(vmax)	# max allow value
@@ -1184,7 +1208,7 @@ class CPID :
 			return _dt
 
 		if self.cnt_step ==0: # skip first loop
-			self.t_step = datetime.now() 
+			self.t_step = datetime.now()
 			self.cnt_step+=1
 			return 0
 
@@ -1298,8 +1322,8 @@ class CChargeCtrlPID(CChargeCtrlBase):
 		else:
 			return grid_pow
 
-	""" reset the pid regulator if the sign of the grid is 
-		changing and the power value is high 
+	""" reset the pid regulator if the sign of the grid is
+		changing and the power value is high
 		@return True if the direction has changed at an high power-value
 	"""
 	def grid_power_dir_changed(self,grid_pow_now : int):
@@ -1317,7 +1341,7 @@ class CChargeCtrlPID(CChargeCtrlBase):
 	"""
 	def calc_power(self,grid_pow):
 
-	
+
 		is_running = super().calc_power(grid_pow)
 		if is_running is False:
 			return
@@ -1419,7 +1443,7 @@ class App:
 		@topic-sub <main-app>/inv/<id>/charge/set {"var":[chargeA,chargeP],"val":[ampere or power]]}
 	"""
 	def cfg(self,ini,reload = False):
-		
+
 		if self.ini is None:
 			self.ini = ini
 		if reload is True:
@@ -1443,7 +1467,7 @@ class App:
 					msg.cb = self.cb_mqtt_sub_event
 					msg.cb_user_data = dev
 					mqttc.append_subscribe(msg)
-				
+
 			#dev.cc = CChargeCtrlWinter(dev)
 			#dev.cc = CChargeCtrlSimple(dev)
 			dev.cc = CChargeCtrlPID(dev)
