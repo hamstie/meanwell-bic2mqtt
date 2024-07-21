@@ -104,17 +104,18 @@ To control charging and discharging with this app.
 |Id/X/DischargeBlockTimeSec   | def: 60[s]              | skip short discharge bursts                               |
 |Id/X/ChargeTol               | def: 10[W]              | don't set new charge value if the running one is nearby   |
 |Id/0/LoopGain                | def:0.5                 | regulator loop gain (only for the simple charger )        |
-|Id/X/Pid/MaxChargePower      | def:400 [W]               | max charge power value (relative for each step) [W]                                |
-|Id/X/Pid/MaxDischargePower   | def:-400 [W]               | max discharge power  (relative for each step) [W]                                   |
+|Id/X/Pid/MaxChargePower      | def:400 [W]             | max charge power value (relative for each step) [W]       |
+|Id/X/Pid/MaxDischargePower   | def:-400 [W]            | max discharge power  (relative for each step) [W]         |
+|  PID Charge-Control         |                         |                                                           |
 |Id/X/Pid/P                   | def:1.0  [0..1.0]       | P-Factor                                                  |
 |Id/X/Pid/I                   | def:0.0  [0..1.0]       | I-Factor leave it zero for simple config                  |
 |Id/X/Pid/D                   | def:0.0  [0..1.0]       | D-Factor leave it zero for simple config                  |
-|
+|  Winter Charge Control      |                         | |
 |Id/X/Id/X/Winter/ChargeP     | def:200W [VA]           | const winter charge power for charging/discharging        | 
 |Id/X/Id/X/Winter/TempMin     | def:10 [C]              | |
 |Id/X/Id/X/Winter/CapMin      | def:20 [%]              | |
 |Id/X/Id/X/Winter/CapMax      | def:50 [%]              | |
-|
+|  Charge Profile (only for pid) |                      | |
 |Id/X/Profile/Hour/h/MaxChargePower    | def:0 [W]      | Charge profiles, per hour [0..23]    |
 |Id/X/Profile/Hour/h/MaxDischargePower |def:0 [W]       | Discharge profiles, per hour [0..23] |
 |Id/X/Profile/Hour/h/GridOffsetPower   |def:0 [W]       | Grid(Smart-Meter) offset , per hour [0..23] |
