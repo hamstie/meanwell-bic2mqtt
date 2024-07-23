@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-APP_VER = "0.90"
+APP_VER = "0.91"
 APP_NAME = "bic2mqtt"
 
 """
- fst:05.04.2024 lst:18.07.2024
+ fst:05.04.2024 lst:23.07.2024
  Meanwell BIC2200-XXCAN to mqtt bridge
- V0.90 ...Charge control for the winter
+ V0.91 ...Charge control for the winter
  V0.81 released-surplus, used the grid power as power value
  V0.75 -grid offset as profile value
  V0.74 -Bugfix charge reset sign detection and value type
@@ -881,6 +881,7 @@ BIC control and regulation class
 - define min/max capacity, start charging <=min and charge until max capacity
 - check temperature of the bic and charge only if it is highter than...
 - cfg: charge-power value, min/max capacity, min temperature
+@todo: another discharge cfg-level, start sm with stop charging level
 """
 class CChargeCtrlWinter(CChargeCtrlBase):
 	eSM_ChageCtrlUnknown	= 0 # unknown
@@ -897,9 +898,9 @@ class CChargeCtrlWinter(CChargeCtrlBase):
 		super().__init__(dev_bic)
 		self.obj_name = "ChargeWinter" # to display the name in mqtt
 		self.sm =  CChargeCtrlWinter.eSM_ChageCtrlStartDelay
-		self.sm_tmo_delay_sec = 120 # [s] timer to sleep,delay the state machine
+		self.sm_tmo_delay_sec = 6 # 2 *60 # [s] timer to sleep,delay the state machine
 		self.sm_tmo_messure_delay_sec = 120 # voltage messure delay for idle-bat volatage
-		self.cfg_min_temp_c = MIN_TEMP_C # minimum temperature [C] for charging
+		self.cfg_min_temp_c = CChargeCtrlWinter.MIN_TEMP_C # minimum temperature [C] for charging
 		self.cfg_min_cap_pc = 30 # min. bat capacity [%], < goto state charge
 		self.cfg_max_cap_pc = 50 # max. allow  bat capacity [%], > goto discharge
 		self.cfg_const_pow = 200 # charge discharge power [W]
@@ -983,49 +984,38 @@ class CChargeCtrlWinter(CChargeCtrlBase):
 
 			new_pow = 0
 			if cap_bat_pc > self.cfg_max_cap_pc:
-				self.sm = CChargeCtrlWinter.eSM_ChageCtrlDischarge
+				self.sm = CChargeCtrlWinter.eSM_ChageCtrlDischarge # discharge, if capacity is higher than maxCapacity
 				new_calc_pow = abs(self.cfg_const_pow) * (-1)
 			elif cap_bat_pc <= self.cfg_min_cap_pc:
-				self.sm = CChargeCtrlWinter.eSM_ChageCtrlCharge # discharge, if capacity is higher than maxCapacity
+				self.sm = CChargeCtrlWinter.eSM_ChageCtrlCharge # charge, if capacity is lower than minCapacity
 				new_calc_pow = abs(self.cfg_const_pow) * (+1)
 			else:
-				self.sm = CChargeCtrlWinter.eSM_ChageCtrlStopd # bat-cap level is ok
+				self.sm = CChargeCtrlWinter.eSM_ChageCtrlStoped # bat-cap level is ok
 				new_calc_pow = 0
 				self.sm_tmo_delay_sec=3600
-			lg.info('bat cap:{}[%] new state:{}'.format(cap_bat_pc,CChargeCtrlWinter.sCharge[self.sm]))
-			self.dev.charge_set_pow(new_calc_pow)
+
+			lg.info('bat cap:{}[%] min/max:{}/{} new state:{}'.format(cap_bat_pc,self.cfg_min_cap_pc,self.cfg_max_cap_pc,CChargeCtrlWinter.sCharge[self.sm]))
+			self.dev_bic.charge_set_pow(new_calc_pow)
 		elif self.sm == CChargeCtrlWinter.eSM_ChageCtrlCharge: # capacity is lower than maxCapacity
 			if (cap_bat_pc -10) >= self.cfg_max_cap_pc:
 				self.sm = CChargeCtrlWinter.eSM_ChageCtrlStartDelay
 				lg.info('Stop charging reached:{}[%]'.format(cap_bat_pc))
-				self.dev.charge_set_pow(0)
+				self.dev_bic.charge_set_pow(0)
 				self.sm_tmo_delay_sec=3600
 		elif self.sm == CChargeCtrlWinter.eSM_ChageCtrlDischarge: # capacity is lower than maxCapacity
 			if (cap_bat_pc-10) <= self.cfg_max_cap_pc:
 				self.sm = CChargeCtrlWinter.eSM_ChageCtrlStartDelay
 				lg.info('Stop discharging reached:{}[%]'.format(cap_bat_pc))
-				self.dev.charge_set_pow(0)
+				self.dev_bic.charge_set_pow(0)
 				self.sm_tmo_delay_sec=3600
-		elif self.sm == CChargeCtrlWinter.eSM_ChageCtrlStoped:	# capacity is bweteen minCapacity and maxCapacity
+		elif self.sm == CChargeCtrlWinter.eSM_ChageCtrlStoped:	# capacity is between minCapacity and maxCapacity
 			if self.check_delay_waiting() is False:
 				self.sm = CChargeCtrlWinter.eSM_ChageCtrlStartDelay
+			#print('stoped:' + str(self.sm_tmo_delay_sec) + ' S:' + str(self.sm))
 		else:
 			raise RuntimeError('wrong sm-state:' + str(self.sm))
 
 
-		new_calc_pow=CChargeCtrlBase.clamp(new_calc_pow,self.discharge_pow_max, self.charge_pow_max)
-
-
-
-		if True:
-			lg.info('CC set new value: pGrid:{}[W] pBat:{}[W] pCalc:{}[W] pOfs:{}[W]'.format(grid_pow,charge_pow,new_calc_pow,self.pow_grid_offset))
-			topic = self.dev_bic.top_inv + '/charge/set'
-			dpl = {"var":"chargeP"}
-			dpl['val'] = int(new_calc_pow)
-			#print("top:{} pl:{}".format(topic,str(dpl)))
-			global mqttc
-			mqttc.publish(topic,json.dumps(dpl, sort_keys=False, indent=0),0,False) # no retain
-		self.calc_power_set(new_calc_pow)
 		return
 
 	# assume 1sec. slice
@@ -1466,9 +1456,9 @@ class App:
 					mqttc.append_subscribe(msg)
 
 		cc_type = ini.get_str('CHARGE_CONTROL','Id/{}/Type'.format(id),"PID").lower()
-		if dev_type == 'pid':
+		if cc_type == 'pid':
 			dev.cc = CChargeCtrlPID(dev)
-		elif dev_type == 'winter':
+		elif cc_type == 'winter':
 			dev.cc = CChargeCtrlWinter(dev)
 			#dev.cc = CChargeCtrlSimple(dev)
 		else:
