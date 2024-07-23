@@ -881,28 +881,27 @@ BIC control and regulation class
 - define min/max capacity, start charging <=min and charge until max capacity
 - check temperature of the bic and charge only if it is highter than...
 - cfg: charge-power value, min/max capacity, min temperature
-@todo: another discharge cfg-level, start sm with stop charging level
 """
 class CChargeCtrlWinter(CChargeCtrlBase):
-	eSM_ChageCtrlUnknown	= 0 # unknown
-	eSM_ChageCtrlStartDelay	= 1 # app start, check capacity of the bat first
+	eSM_ChageCtrlInit		= 0 # init, stop charging
+	eSM_ChageCtrlCheckDelay	= 1 # app start, check capacity of the bat first
 	eSM_ChageCtrlDischarge 	= 2 # discharge, if capacity is higher than maxCapacity
 	eSM_ChageCtrlCharge		= 3 # capacity is lower than maxCapacity
 	eSM_ChageCtrlStoped		= 4 # capacity is bweteen minCapacity and maxCapacity
 
 	MIN_TEMP_C = 10 # minimum temperature [C]
 
-	sCharge = ['----','Start','Discharge','Charge','Stoped'] # enum to string
+	sCharge = ['Init','Check','Discharge','Charge','Stoped'] # enum to string
 
 	def __init__(self,dev_bic : CBicDevBase):
 		super().__init__(dev_bic)
 		self.obj_name = "ChargeWinter" # to display the name in mqtt
-		self.sm =  CChargeCtrlWinter.eSM_ChageCtrlStartDelay
-		self.sm_tmo_delay_sec = 6 # 2 *60 # [s] timer to sleep,delay the state machine
+		self.sm =  CChargeCtrlWinter.eSM_ChageCtrlCheckInit
+		self.sm_tmo_delay_sec = 6 # [s] timer to sleep,delay the state machine
 		self.sm_tmo_messure_delay_sec = 120 # voltage messure delay for idle-bat volatage
 		self.cfg_min_temp_c = CChargeCtrlWinter.MIN_TEMP_C # minimum temperature [C] for charging
 		self.cfg_min_cap_pc = 30 # min. bat capacity [%], < goto state charge
-		self.cfg_max_cap_pc = 50 # max. allow  bat capacity [%], > goto discharge
+		self.cfg_max_cap_pc = 50 # max. allow  bat capacity [%], > stop charging max-cap + 20%: discharge
 		self.cfg_const_pow = 200 # charge discharge power [W]
 
 	""" Charge Control Winter: cfg
@@ -972,9 +971,14 @@ class CChargeCtrlWinter(CChargeCtrlBase):
 		if App.ts_1min == 2:
 			lg.info('bat cap:{}[%] pCharge:{} state:{}'.format(cap_bat_pc,charge_pow,CChargeCtrlWinter.sCharge[self.sm]))
 
-		if self.sm == CChargeCtrlWinter.eSM_ChageCtrlUnknown:
-			raise RuntimeError('wrong sm-state:' + str(self.sm))
-		elif self.sm == CChargeCtrlWinter.eSM_ChageCtrlStartDelay: # app start, check capacity of the bat first
+		if self.sm == CChargeCtrlWinter.eSM_ChageCtrlInit:
+			# wait a bit and set the charge-level to 0
+			if self.check_delay_waiting() is True:
+				return
+			self.dev_bic.charge_set_pow(0)
+			self.sm_tmo_delay_sec=2*60
+			self.sm = CChargeCtrlWinter.eSM_ChageCtrlCheckDelay
+		elif self.sm == CChargeCtrlWinter.eSM_ChageCtrlCheckDelay: # app start, check capacity of the bat first
 			if self.check_delay_waiting() is True:
 				return
 			# start delay reached check temp and voltage
@@ -983,7 +987,7 @@ class CChargeCtrlWinter(CChargeCtrlBase):
 			# temp ok, check bat capactity
 
 			new_pow = 0
-			if cap_bat_pc > self.cfg_max_cap_pc:
+			if cap_bat_pc > self.cfg_max_cap_pc+20: # don't allow to mutch bat capacity in winter
 				self.sm = CChargeCtrlWinter.eSM_ChageCtrlDischarge # discharge, if capacity is higher than maxCapacity
 				new_calc_pow = abs(self.cfg_const_pow) * (-1)
 			elif cap_bat_pc <= self.cfg_min_cap_pc:
@@ -998,19 +1002,19 @@ class CChargeCtrlWinter(CChargeCtrlBase):
 			self.dev_bic.charge_set_pow(new_calc_pow)
 		elif self.sm == CChargeCtrlWinter.eSM_ChageCtrlCharge: # capacity is lower than maxCapacity
 			if (cap_bat_pc -10) >= self.cfg_max_cap_pc:
-				self.sm = CChargeCtrlWinter.eSM_ChageCtrlStartDelay
+				self.sm = CChargeCtrlWinter.eSM_ChageCtrlCheckDelay
 				lg.info('Stop charging reached:{}[%]'.format(cap_bat_pc))
 				self.dev_bic.charge_set_pow(0)
 				self.sm_tmo_delay_sec=3600
 		elif self.sm == CChargeCtrlWinter.eSM_ChageCtrlDischarge: # capacity is lower than maxCapacity
 			if (cap_bat_pc-10) <= self.cfg_max_cap_pc:
-				self.sm = CChargeCtrlWinter.eSM_ChageCtrlStartDelay
+				self.sm = CChargeCtrlWinter.eSM_ChageCtrlCheckDelay
 				lg.info('Stop discharging reached:{}[%]'.format(cap_bat_pc))
 				self.dev_bic.charge_set_pow(0)
 				self.sm_tmo_delay_sec=3600
 		elif self.sm == CChargeCtrlWinter.eSM_ChageCtrlStoped:	# capacity is between minCapacity and maxCapacity
 			if self.check_delay_waiting() is False:
-				self.sm = CChargeCtrlWinter.eSM_ChageCtrlStartDelay
+				self.sm = CChargeCtrlWinter.eSM_ChageCtrlCheckDelay
 			#print('stoped:' + str(self.sm_tmo_delay_sec) + ' S:' + str(self.sm))
 		else:
 			raise RuntimeError('wrong sm-state:' + str(self.sm))
