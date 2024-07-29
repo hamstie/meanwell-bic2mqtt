@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-APP_VER = "0.91"
+APP_VER = "0.92"
 APP_NAME = "bic2mqtt"
 
 """
- fst:05.04.2024 lst:23.07.2024
+ fst:05.04.2024 lst:29.07.2024
  Meanwell BIC2200-XXCAN to mqtt bridge
- V0.91 ...Charge control for the winter
+ V0.92 -round min/max pid charge power to 10
+ V0.91 +Charge control for the winter
  V0.81 released-surplus, used the grid power as power value
  V0.75 -grid offset as profile value
  V0.74 -Bugfix charge reset sign detection and value type
@@ -1353,8 +1354,10 @@ class CChargeCtrlPID(CChargeCtrlBase):
 			self.pid.reset()
 			return
 
+		charge_pow10 = round(charge_pow,-1) # roundto10
+
 		# prevent, that the set values running away from the real bat-chargeing level, the charge power is limited
-		new_calc_pow=CChargeCtrlBase.clamp(round(new_calc_pow,-1),round(charge_pow-100-1),round(charge_pow+100,-1))
+		new_calc_pow=CChargeCtrlBase.clamp(round(new_calc_pow,-1),charge_pow10-100,charge_pow10+100)
 		#use also the configured min/max one top
 		new_calc_pow=CChargeCtrlBase.clamp(new_calc_pow,self.discharge_pow_max, self.charge_pow_max)
 
