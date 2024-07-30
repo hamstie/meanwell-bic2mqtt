@@ -3,7 +3,7 @@ APP_VER = "0.92"
 APP_NAME = "bic2mqtt"
 
 """
- fst:05.04.2024 lst:29.07.2024
+ fst:05.04.2024 lst:30.07.2024
  Meanwell BIC2200-XXCAN to mqtt bridge
  V0.92 -round min/max pid charge power to 10
  V0.91 +Charge control for the winter
@@ -1333,6 +1333,8 @@ class CChargeCtrlPID(CChargeCtrlBase):
 	"""
 	def calc_power(self,grid_pow):
 
+		def round_to_twenty(number):
+			return round(number / 20) * 20
 
 		is_running = super().calc_power(grid_pow)
 		if is_running is False:
@@ -1354,10 +1356,10 @@ class CChargeCtrlPID(CChargeCtrlBase):
 			self.pid.reset()
 			return
 
-		charge_pow10 = round(charge_pow,-1) # roundto10
+		charge_pow_r20 = round_to_twenty(charge_pow) # roundto10
 
 		# prevent, that the set values running away from the real bat-chargeing level, the charge power is limited
-		new_calc_pow=CChargeCtrlBase.clamp(round(new_calc_pow,-1),charge_pow10-100,charge_pow10+100)
+		new_calc_pow=CChargeCtrlBase.clamp(round(new_calc_pow,-1),charge_pow_r20-100,charge_pow_r20+100)
 		#use also the configured min/max one top
 		new_calc_pow=CChargeCtrlBase.clamp(new_calc_pow,self.discharge_pow_max, self.charge_pow_max)
 
