@@ -11,7 +11,7 @@
 # - variables plausibility check
 # - programming missing functions
 # - current and voltage maximum settings
-VER = "0.2.77"
+VER = "0.2.78"
 # steve 08.06.2023  Version 0.2.1
 # steve 10.06.2023  Version 0.2.2
 # macGH 15.06.2023  Version 0.2.3
@@ -42,7 +42,8 @@ VER = "0.2.77"
 #       - toggle-operation
 # hamstie 4.5.2024 catch index error if can read failed
 # hamstie 26.05.2024 Version 0.2.76 skip useless eeprom writes for the direction mode
-# hamstie 10.07.2024 Version 0.2.77 catch value error 
+# hamstie 10.07.2024 Version 0.2.77 catch value error
+# hamstie 30.07.2024 Version 0.2.78 rs232-can device shutdown, wrong function was called 
 
 import os
 import can
@@ -208,7 +209,7 @@ class CBic:
     def can_down(can_chan_id = 'can0'):
         os.system('sudo ip link set {} down'.format(can_chan_id))
 
-    def can_shutdown(self):
+    def can_shutdown_serial(self):
         if self.can_chan is not None:
             self.can_chan.shutdown()
 
@@ -832,6 +833,6 @@ if __name__ == "__main__":
 
     if USE_RS232_CAN == 1:
         #shutdown CAN Bus
-        bic.shutdown()
+        bic.can_shutdown_serial()
 
     sys.exit(error)
