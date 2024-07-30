@@ -148,8 +148,8 @@ To control charging and discharging with this app.
  - Configure bic2mqtt.ini
    - Configure your battery profile for SOC values
    - Configure Device charge and discharge values for your bic device (be careful !!)
-   - Disable charge controller [CHARGE_CONTROL] Id/0/Enabled=0
- - Start bic2mqtt.py and test the limit of charging/discharging:publish some charge values by hand (topic:<main-app>/inv/0/charge/set)
+   - Disable charge controller [CHARGE_CONTROL] Id/0/Type="none"
+ - Start bic2mqtt.py and test the limit of charging/discharging:publish some charge values by hand (topic:<main-app>/inv/0/charge/set  e.g. {"var":"chargeP","val":30} )
  - After all enable the pid controller and configure the P-I-D parameter (hot config is possible with cfgReload)
    
 # Examples        
