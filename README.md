@@ -89,7 +89,7 @@ Create a SOC list of the battery device to convert voltage to percent
 
 |key                          | default value  | description   |
 |-----------------------------|----------------|-------------- |
-|Cap2V/X                      |                | Capacity to Voltage Value to create a SOC list of the bat device e.g Cap2V/45=20 means cap45% is 20V SOC Volatge |
+|Cap2V/X                      |                | Capacity to Voltage Value to create a SOC list of the bat device e.g Cap2V/45=20 means cap45% is 20V SOC Voltage |
 
 
 ## Section [CHARGE_CONTROL]
