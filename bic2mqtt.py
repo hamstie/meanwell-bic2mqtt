@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-APP_VER = "0.92"
+APP_VER = "1.00"
 APP_NAME = "bic2mqtt"
 
 """
- fst:05.04.2024 lst:30.07.2024
+ fst:05.04.2024 lst:31.07.2024
  Meanwell BIC2200-XXCAN to mqtt bridge
+ V1.00 ..surplus-switch object
  V0.92 -round min/max pid charge power to 10
  V0.91 +Charge control for the winter
  V0.81 released-surplus, used the grid power as power value
@@ -160,6 +161,16 @@ class CBattery():
 			v1 = v2
 		# not found ? raise runtime error?
 		return 0
+
+
+class CSurplusSwitch():
+	lst = [] # list od surplus switches 
+	
+	def __init__(self):
+		pass
+
+	def poll(timeslice_sec:int):
+		pass 
 
 
 """
