@@ -49,7 +49,7 @@ import json
 import configparser
 from cavg import CMAvg
 
-import sys
+import sys,re
 
 # later we modify this, using a config file
 MQTT_BROKER_ADR = "127.0.0.1" # mqtt broker ip-address
@@ -168,27 +168,27 @@ class CBattery():
 """
 class CSurplus():
 
-	
 	class Switch:
 		def __init__(self,id):
 			self.id = id
+			self.topic = ""
+			self.dn = ""
 			self.cfg_dur_min = 0
 			self.cfg_dur_max = 0
 			self.cfg_surplus_pow_min = 0
-			self.cfg_topic = ""
-
 
 		def poll(self,timeslice_sec : int):
-			pass
+			print("sw poll:" + str(self))
+
+		def __str__(self):
+			return "SUR sw id:{} dn:{} pMin:{}[W] top:{} min/max:{}/{}[min]".format(self.id,self.cfg_dn,self.cfg_surplus_pow_min,self.topic,self.cfg_dur_min,self.cfg_dur_max)
 
 
 	def __init__(self):
 		self.lst = [] # list off switch objects prio based
 		self.cfg_switch_delay_sec = 40 # list off switch objects
 
-	# append a switch
-	def append(self):
-		pass
+
 
 	"""
 	@param dbkey-int [SURPLUS_SWITCH]SwitchDelaySec  def:40[s] Delay between each switch action (on/off) to ensure proper grid power response for new decisions.
@@ -198,12 +198,44 @@ class CSurplus():
 	@param dbkey-int [SURPLUS_SWITCH]Id/X/switch/Y/MinDurationMin def:5[min]
 	@param dbkey-int [SURPLUS_SWITCH]Id/X/switch/Y/MaxDurationMax (def:-1 [min] endless)  Max. time the switch is on 
 	"""
-	def cfg(self,ini,hot_cfg = False):
-		pass
+	def cfg(self,ini,reload = False):
+		lg.info('SUR cfg id:' + str(self.id))
+		self.lst.clear()
+
+		def kpfx(str_tail : str):
+			return "Id/{}/{}".format(self.id,str_tail)
+
+		def kpfx_switch(switch_id:int ,str_tail : str):
+			return "Id/{}/switch/{}/{}".format(self.id,switch_id,str_tail)
+
+		self.cfg_switch_delay_sec = ini.get_int('SURPLUS_SWITCH',kpfx("SwitchDelaySec"),40)
+		d = ini.get_sec_keys('SURPLUS_SWITCH')
+		for k,v in d.items():
+			try:
+				if k.find('/switch/')>=0:
+				
+					ltok = k.split('/')
+					if len(ltok) >= 4:
+						id_switch = int(ltok[3])
+						sur_pow= ini.get_int('SURPLUS_SWITCH',kpfx_switch(id_switch,"SurplusMinP"),0)
+						if sur_pow >0:
+							sw = CSurplus.Switch(id_switch)
+							sw.cfg_surplus_pow_min = sur_pow
+							sw.topic = ini.get_str('SURPLUS_SWITCH',kpfx_switch(id_switch,"Topic"),"")
+							sw.dn = ini.get_str('SURPLUS_SWITCH',kpfx_switch(id_switch,"Name"),"")
+							sw.cfg_dur_min = ini.get_int('SURPLUS_SWITCH',kpfx_switch(id_switch,"MinDurationMin"),5)
+							sw.cfg_dur_max = ini.get_int('SURPLUS_SWITCH',kpfx_switch(id_switch,"MinDurationMax"),-1)
+							self.lst.append(sw)
+							lg.info('SUR cfg +' + str(sw))		
+			
+			except Exception as err:
+				lg.error("cfg surplus key:{} err:{}".format(k,err))
 
 
 	def poll(self,timeslice_sec : int):
-		pass
+		for sw in self.lst:
+			sw.poll(timeslice_sec)
+
 
 
 """
@@ -236,6 +268,7 @@ class CBicDevBase():
 		self.system_voltage = 0 # needed for power calculation
 		self.top_inv = "" # MQTT_T_APP + '/inv/' + str(self.id)
 		self.cc = None	# charge control
+		self.sp = CSurplus(self.id) # surplus switch
 		self.bat = self.bat = CBattery(self.id) # battery
 
 		self.info = {}
@@ -428,6 +461,7 @@ class CBicDevBase():
 		self.top_inv = MQTT_T_APP + '/inv/' + str(self.id)
 
 		self.bat.cfg(ini,reload)
+		self.sp.cfg(ini,reload)
 
 		lg.info("init " + str(self))
 		#dischargedelay = int(config.get('Settings', 'DischargeDelay'))
@@ -490,6 +524,8 @@ class CBicDevBase():
 				jpl = json.dumps(self.bic.d_fault, sort_keys=False, indent=4)
 				global mqttc
 				mqttc.publish(MQTT_T_APP + '/inv/' + str(self.id) +  '/fault',jpl,0,True) # retained
+
+		self.sp.poll(1)
 
 		if App.ts_1min == 1:
 			fault_check_update(True)
@@ -1023,7 +1059,7 @@ class CChargeCtrlWinter(CChargeCtrlBase):
 			temp_c = int(self.dev_bic.state['tempC'])
 			if temp_c > self.cfg_min_temp_c:
 				return True
-		except:
+		except as e
 			pass
 		lg.critical('temperature to low, waiting t:{}[C]'.format(temp_c))
 		self.sm_tmo_delay_sec = 60 * 10
