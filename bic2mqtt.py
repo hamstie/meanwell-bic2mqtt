@@ -174,7 +174,9 @@ class CSurplus():
 			self.topic = ""
 			self.dn = ""
 			self.cfg_dur_min = 0
+			self.tmo_dur_min_sec = -1
 			self.cfg_dur_max = 0
+			self.tmo_dur_max_sec = -1
 			self.cfg_surplus_pow_min = 0
 			self.state = 0
 			self.sp = sp # CSurplus object
@@ -196,7 +198,10 @@ class CSurplus():
 
 	def __init__(self,dev_id):
 		self.lst = [] # list off switch objects prio based
+		self.lst_to_stop = [] # list of switches to stop
+		self.lst_started = [] # list of switches to started 
 		self.cfg_switch_delay_sec = 40 # list off switch objects
+		self.tmo_switch_delay = -1 # timout for switch delay after each start/stop	 
 		self.dev_id = dev_id # device-id of the charger
 
 
@@ -244,9 +249,17 @@ class CSurplus():
 
 		return
 
-
+	def start_switch_delay(self):
+		self.tmo_switch_delay = self.cfg_switch_delay_sec
 
 	def poll(self,surpower : int,timeslice_sec : int):
+		
+		if surpower ==0:
+			if len(self.lst_to_stop) >0:
+				pass
+		else: # surpower >0
+			pass
+
 		for sw in self.lst:
 			sw.poll(surpower,timeslice_sec)
 
