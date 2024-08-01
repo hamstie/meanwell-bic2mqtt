@@ -5,7 +5,7 @@ APP_NAME = "bic2mqtt"
 """
  fst:05.04.2024 lst:31.07.2024
  Meanwell BIC2200-XXCAN to mqtt bridge
- V1.00 ..surplus-switch object
+ V1.00 ..surplus-switch object, gap power handling
  V0.92 -round min/max pid charge power to 10
  V0.91 +Charge control for the winter
  V0.81 released-surplus, used the grid power as power value
@@ -164,13 +164,13 @@ class CBattery():
 
 
 class CSurplusSwitch():
-	lst = [] # list od surplus switches 
-	
+	lst = [] # list od surplus switches
+
 	def __init__(self):
 		pass
 
 	def poll(timeslice_sec:int):
-		pass 
+		pass
 
 
 """
@@ -187,6 +187,9 @@ class CBicDevBase():
 	e_onl_mode_running	= 3 # charging/discharging
 
 	s_onl_mode = ['offline','init','idle','running']
+
+
+	DEF_SATURATION_POW = 80 # gap between set power and real bat-power charging/discharging
 
 	def __init__(self,id : int,type : str):
 		self.id = id	# device-id from ini
@@ -334,11 +337,13 @@ class CBicDevBase():
 					self.avg_pow_charge.push_val(pow_w)
 					self.avg_pow_discharge.push_val(0)
 					self.charge_saturation = self.charge_pow_set - pow_w
-					if (self.charge_saturation >=80) and (self.pow_last_grid_value <0):
+					if (self.charge_saturation >= CBicDevBase.DEF_SATURATION_POW) and (self.pow_last_grid_value <0):
 						_pow_surplus = abs(self.pow_last_grid_value)
 						self.avg_pow_surplus.push_val(_pow_surplus)
 					else:
 						self.avg_pow_surplus.push_val(0)
+
+
 					# W/ms -> kW/h
 					self.charge['chargedKWh'] = round(self.avg_pow_charge.sum_get(0,0)/(1E6*3600),1)
 					self.charge['surplusKWh'] = round(self.avg_pow_surplus.sum_get(0,0)/(1E6*3600),1)
@@ -534,6 +539,7 @@ class CBicDevBase():
 		if self.charge_pow_set == val_pow:
 			return
 		self.charge_pow_set = val_pow
+
 		v = self.state['dcBatV']
 		if v < 20:
 			v = 24 # set before read from bic
@@ -699,6 +705,7 @@ class CChargeCtrlBase():
 
 	DEF_GRID_TMO_SEC = 320 # seconds to switch off bic-dev if we get no new gid-power values
 	DEF_BLOCK_TIME_DISCHARGE = 60 # [s]
+	DEF_MAX_POW_GAP = 100 # [W] max power gap for saturation detection
 
 	def __init__(self,dev_bic : CBicDevBase):
 		self.enabled = False # enabled
@@ -718,6 +725,9 @@ class CChargeCtrlBase():
 		self.avg_pow = CMAvg(3600*1000) #average calculation , store values for on hour
 		self.pow_grid_offset = 0 # [W] offset power for the calculation, move the zero point of power balance
 		self.charge_pow_tol = 10 # [W] don't set new charge value if the running one is nearby
+		self.cfg_gap_pow_range = CChargeCtrlBase.DEF_MAX_POW_GAP # [W] >0 enable gap power handling 
+		self.gap_pow = 0 # [W] gap between set power and bat charging/discharging (happend for saturation/empty bat)
+		self.gap_pow_cnt = 0 # DEF_MAX_POW_GAP was reached increase counter else reset counter
 		# will be set later with the charge profile
 		self.charge_pow_max = 0 # [W] max charge power power value
 		self.discharge_pow_max = 0 # [W] min discharge power value, normaly a negative value
@@ -816,6 +826,14 @@ class CChargeCtrlBase():
 		if val_pow >0:
 			self.t_last_charge = datetime.now()
 
+		if 	self.cfg_gap_pow_range > 0:
+			self.gap_pow = self.calc_power - self.dev_bic.charge['chargeP'] # charge power of the bat from real voltage and current of the bic
+			if abs(self.gap_pow) >= self.cfg_gap_pow_range:
+				self.gap_pow_cnt += 1
+			elif abs(self.gap_pow) < (self.cfg_gap_pow_range * 0.8):
+				lg.debug('dev gap:{}[W] cnt:{} reset gap-cnt:{}[W]'.format(self.gap_pow,self.gap_cnt,val_pow))
+				self.gap_pow_cnt = 0
+
 
 	# calculate new power value to set, overwrite it !
 	def calc_power(self,grid_pow):
@@ -828,6 +846,8 @@ class CChargeCtrlBase():
 		lg.info('CC charge control reset')
 		self.dev_bic.charge_set_idle() # reset to lowest charge value
 		self.calc_pow = 0
+		self.gap_pow_cnt = 0
+		self.gap_pow = 0
 
 	def enable(self,enable :bool):
 		self.enabled=enable
@@ -915,6 +935,7 @@ class CChargeCtrlWinter(CChargeCtrlBase):
 		self.cfg_min_cap_pc = 30 # min. bat capacity [%], < goto state charge
 		self.cfg_max_cap_pc = 50 # max. allow  bat capacity [%], > stop charging max-cap + 20%: discharge
 		self.cfg_const_pow = 200 # charge discharge power [W]
+		self.cfg_gap_pow_range = 0 # disable gap-power detection
 
 	""" Charge Control Winter: cfg
 	    @param dbkey-int [CHARGE_CONTROL]Id/X/Winter/ChargeP def:200W [VA]
@@ -1370,7 +1391,7 @@ class CChargeCtrlPID(CChargeCtrlBase):
 		charge_pow_r20 = round_to_twenty(charge_pow) # roundto10
 
 		# prevent, that the set values running away from the real bat-chargeing level, the charge power is limited
-		new_calc_pow=CChargeCtrlBase.clamp(round(new_calc_pow,-1),charge_pow_r20-100,charge_pow_r20+100)
+		# used gap-power instead new_calc_pow=CChargeCtrlBase.clamp(round(new_calc_pow,-1),charge_pow_r20-100,charge_pow_r20+100)
 		#use also the configured min/max one top
 		new_calc_pow=CChargeCtrlBase.clamp(new_calc_pow,self.discharge_pow_max, self.charge_pow_max)
 
@@ -1382,7 +1403,12 @@ class CChargeCtrlPID(CChargeCtrlBase):
 			elif self.discharge_pow_max >=0:
 				lg.debug('CC no-discharge hour profile')
 
-		if abs(tol_pow) > self.charge_pow_tol:
+			_gap_power_high = False
+			if self.gap_pow_cnt >10:
+				lg.debug('dev gap:{}[W] cnt:{} skip set power val:{}[W]'.format(self.gap_pow,self.gap_cnt,tol_pow))
+				_gap_power_high = True
+
+		if (abs(tol_pow) > self.charge_pow_tol) and (_gap_power_high is False):
 			lg.info('CC set new value: pGrid:{}[W] pBat:{}[W] pCalcNew:{}[W] pOfs:{}[W]'.format(grid_pow,charge_pow,new_calc_pow,self.pow_grid_offset))
 			topic = self.dev_bic.top_inv + '/charge/set'
 			dpl = {"var":"chargeP"}
@@ -1390,9 +1416,9 @@ class CChargeCtrlPID(CChargeCtrlBase):
 			#print("top:{} pl:{}".format(topic,str(dpl)))
 			global mqttc
 			mqttc.publish(topic,json.dumps(dpl, sort_keys=False, indent=0),0,False) # no retain
-			self.calc_power_set(new_calc_pow)
+			#self.calc_power_set(new_calc_pow)
 		else:
-			lg.info('CC const value: pGrid:{}[W] pBat:{}[W] pCalcLast:{}[W] pOfs:{}[W]'.format(grid_pow,charge_pow,new_calc_pow,self.pow_grid_offset))
+			lg.info('CC const value: pGrid:{}[W] pBat:{}[W] pCalcLast:{}[W] pOfs:{}[W] pGap:{}[W]'.format(grid_pow,charge_pow,new_calc_pow,self.pow_grid_offset,self.gap_pow))
 		self.calc_power_set(new_calc_pow)
 
 		return
