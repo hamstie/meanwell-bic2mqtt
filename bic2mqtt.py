@@ -715,7 +715,7 @@ class CChargeCtrlBase():
 		self.tmo_grid_sec = CChargeCtrlBase.DEF_GRID_TMO_SEC # grid tmo timer
 		self.grid_pow = 0 # last grid power value
 		self.grid_pow_tmo = False # no new values from smart-meter
-		self.calc_pow = 0 # calculated power to set
+		self.calc_pow_last = 0 # calculated power to set
 
 		self.ts_1000ms=0 # timeslice 1000ms [ms]
 		self.ts_calc_sec=0 # timeslice for each calculation [s]
@@ -822,12 +822,12 @@ class CChargeCtrlBase():
 
 	# set the calculated power
 	def calc_power_set(self,val_pow : int):
-		self.calc_pow = val_pow
+		self.calc_pow_last = val_pow
 		if val_pow >0:
 			self.t_last_charge = datetime.now()
 
 		if 	self.cfg_gap_pow_range > 0:
-			self.gap_pow = self.calc_power - int(self.dev_bic.charge['chargeP']) # charge power of the bat from real voltage and current of the bic
+			self.gap_pow = self.calc_pow_last - int(self.dev_bic.charge['chargeP']) # charge power of the bat from real voltage and current of the bic
 			if abs(self.gap_pow) >= self.cfg_gap_pow_range:
 				self.gap_pow_cnt += 1
 			elif abs(self.gap_pow) < (self.cfg_gap_pow_range * 0.8):
@@ -845,7 +845,7 @@ class CChargeCtrlBase():
 	def reset(self):
 		lg.info('CC charge control reset')
 		self.dev_bic.charge_set_idle() # reset to lowest charge value
-		self.calc_pow = 0
+		self.calc_pow_last = 0
 		self.gap_pow_cnt = 0
 		self.gap_pow = 0
 
@@ -1382,7 +1382,7 @@ class CChargeCtrlPID(CChargeCtrlBase):
 			new_calc_pow = 0
 			charge_pow = 0
 		elif abs(tol_pow) > self.charge_pow_tol:
-			new_calc_pow = self.calc_pow + self.pid.step(grid_pow)
+			new_calc_pow = self.calc_pow_last + self.pid.step(grid_pow)
 			#new_calc_pow = charge_pow + self.pid.step(grid_pow)
 		else:
 			lg.debug('CC pid stoped tol:{}[W]'.format(tol_pow))
