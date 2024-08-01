@@ -723,7 +723,7 @@ class CChargeCtrlBase():
 		self.ts_calc_cfg=12 # timeslice cfg
 		self.ts_1min=0 # timeslive 1min [s]
 
-		self.avg_pow = CMAvg(3600*1000) #average calculation , store values for on hour
+		self.avg_pow_grid = CMAvg(3600*1000) #average calculation , store values for on hour
 		self.pow_grid_offset = 0 # [W] offset power for the calculation, move the zero point of power balance
 		self.charge_pow_last = 0 # [W] last bat charged power
 		self.charge_pow_tol = 10 # [W] don't set new charge value if the running one is nearby
@@ -859,6 +859,9 @@ class CChargeCtrlBase():
 
 	def poll(self,timeslice_ms):
 
+		def gridavg(minute : int):
+			return self.avg_pow_grid.avg_get(minute*60*1000,-1)
+
 		self.ts_1000ms += timeslice_ms
 		if self.ts_1000ms >= 1000:
 			self.ts_1000ms=0
@@ -880,7 +883,7 @@ class CChargeCtrlBase():
 
 
 			if self.ts_1min == 1:
-				lg.info('CC pGrid:{}[W] pGridAvg:1m:{} 2m:{} 5m:{} 1h:{} offs:{}[W]'.format(self.grid_pow,self.avg_get_min(1),self.avg_get_min(2),self.avg_get_min(5),self.avg_get_min(60),self.pow_grid_offset))
+				lg.info('CC pGrid:{}[W] pGridAvg:1m:{} 2m:{} 5m:{} 1h:{} offs:{}[W]'.format(self.grid_pow,gridavg(1),gridavg(2),gridavg(5),gridavg(60),self.pow_grid_offset))
 			elif self.ts_1min == 2:
 				lg.info('CC pGrid:{}[W] pBat:{}[W] pCalcLast:{}[W] pGap:{}[W]'.format(self.grid_pow,self.charge_pow_last,self.calc_pow_last,self.gap_pow))
 
@@ -1104,7 +1107,7 @@ class CChargeCtrlSimple(CChargeCtrlBase):
 		super().on_cb_grid_power(grid_pow)
 
 		#lg.info('CC new grid power value {} [W]'.format(self.grid_pow))
-		self.avg_pow.push_val(grid_pow)
+		self.avg_pow_grid.push_val(grid_pow)
 
 		#lg.info('CC pGrid:{}[W] pGridAvg:1m:{} 2m:{} 5m:{} 1h:{} offs:{}[W]'.format(grid_pow,self.avg_get_min(1),self.avg_get_min(2),self.avg_get_min(5),self.avg_get_min(60),self.pow_grid_offset))
 		if self.enabled is True:
@@ -1123,7 +1126,7 @@ class CChargeCtrlSimple(CChargeCtrlBase):
 			return
 
 		charge_pow = self.dev_bic.charge['chargeP']
-		grid_pow = self.avg_pow.avg_get(1*1000*60,-1) + self.pow_grid_offset # used avg grid power with offset
+		grid_pow = self.avg_pow_grid.avg_get(1*1000*60,-1) + self.pow_grid_offset # used avg grid power with offset
 
 
 		new_calc_pow = math_round_up(charge_pow  + (grid_pow * self.cfg_loop_gain * (-1)))
@@ -1325,14 +1328,11 @@ class CChargeCtrlPID(CChargeCtrlBase):
 	"""
 	def on_cb_grid_power(self,grid_pow):
 
-		def avg2min(minute : int):
-			return self.avg_pow.avg_get(minute*60*1000,-1)
-
 		super().on_cb_grid_power(grid_pow)
 
 		#lg.info('CC new grid power value {} [W]'.format(self.grid_pow))
 		#grid_pow=self.sm_zero_tol(grid_pow)
-		self.avg_pow.push_val(grid_pow)
+		self.avg_pow_grid.push_val(grid_pow)
 		#lg.info('CC pGrid:{}[W] pGridAvg:1m:{} 2m:{} 5m:{} 1h:{} offs:{}[W]'.format(grid_pow,self.avg_get_min(1),self.avg_get_min(2),self.avg_get_min(5),self.avg_get_min(60),self.pow_grid_offset))
 		#grid_pow=self.sm_zero_tol(grid_pow)
 		if self.enabled is True:
@@ -1438,9 +1438,6 @@ class CChargeCtrlPID(CChargeCtrlBase):
 		return
 
 	def poll(self,timeslice_ms):
-
-		def avg2min(minute : int):
-			return self.avg_pow.avg_get(minute*60*1000,-1)
 
 		super().poll(timeslice_ms)
 		if self.ts_1min == 1:
