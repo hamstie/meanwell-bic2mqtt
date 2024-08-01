@@ -174,11 +174,12 @@ class CSurplus():
 			self.topic = ""
 			self.dn = ""
 			self.cfg_dur_min = 0
-			self.tmo_dur_min_sec = -1
+			self.dur_running_sec = -1 # running duration [s]
 			self.cfg_dur_max = 0
 			self.tmo_dur_max_sec = -1
 			self.cfg_surplus_pow_min = 0
 			self.state = 0
+			self.bo_try_stop = False
 			self.sp = sp # CSurplus object
 
 		# return True if a switch action was done 
@@ -186,11 +187,16 @@ class CSurplus():
 			#print("sw poll:" + str(self))
 			return False # no switch action was done
 
+		def reset(self):
+			self.dur_running_sec = -1
+			self.bo_try_stop = False
 
 		def set_state(self,new_state):
 			if self.state != new_state:
 				self.state=new_state
-
+				if self.state==0:
+					self.reset()
+				self.sp.start_switch_delay()			
 
 		def __str__(self):
 			return "SUR sw id:{} dn:{} pMin:{}[W] top:{} min/max:{}/{}[min]".format(self.id,self.dn,self.cfg_surplus_pow_min,self.topic,self.cfg_dur_min,self.cfg_dur_max)
