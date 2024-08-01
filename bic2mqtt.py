@@ -827,11 +827,11 @@ class CChargeCtrlBase():
 			self.t_last_charge = datetime.now()
 
 		if 	self.cfg_gap_pow_range > 0:
-			self.gap_pow = self.calc_power - self.dev_bic.charge['chargeP'] # charge power of the bat from real voltage and current of the bic
+			self.gap_pow = self.calc_power - int(self.dev_bic.charge['chargeP']) # charge power of the bat from real voltage and current of the bic
 			if abs(self.gap_pow) >= self.cfg_gap_pow_range:
 				self.gap_pow_cnt += 1
 			elif abs(self.gap_pow) < (self.cfg_gap_pow_range * 0.8):
-				lg.debug('dev gap:{}[W] cnt:{} reset gap-cnt:{}[W]'.format(self.gap_pow,self.gap_cnt,val_pow))
+				lg.debug('CC gap:{}[W] cnt:{} reset gap-cnt:{}[W]'.format(self.gap_pow,self.gap_cnt,val_pow))
 				self.gap_pow_cnt = 0
 
 
@@ -1364,9 +1364,10 @@ class CChargeCtrlPID(CChargeCtrlBase):
 
 	"""
 	def calc_power(self,grid_pow):
-
+		"""
 		def round_to_twenty(number):
 			return round(number / 20) * 20
+		"""
 
 		is_running = super().calc_power(grid_pow)
 		if is_running is False:
@@ -1388,17 +1389,18 @@ class CChargeCtrlPID(CChargeCtrlBase):
 			self.pid.reset()
 			return
 
-		charge_pow_r20 = round_to_twenty(charge_pow) # roundto10
+		""" V1.0 try to use gap power calculation for skipping set power
+		 charge_pow_r20 = round_to_twenty(charge_pow) # roundto10
+		 prevent, that the set values running away from the real bat-chargeing level, the charge power is limited
+		new_calc_pow=CChargeCtrlBase.clamp(round(new_calc_pow,-1),charge_pow_r20-100,charge_pow_r20+100)
+		"""
 
-		# prevent, that the set values running away from the real bat-chargeing level, the charge power is limited
-		# used gap-power instead new_calc_pow=CChargeCtrlBase.clamp(round(new_calc_pow,-1),charge_pow_r20-100,charge_pow_r20+100)
-		#use also the configured min/max one top
-		new_calc_pow=CChargeCtrlBase.clamp(new_calc_pow,self.discharge_pow_max, self.charge_pow_max)
+		new_calc_pow=CChargeCtrlBase.clamp(new_calc_pow,self.discharge_pow_max, self.charge_pow_max) # configured min/max one top
 
 		# check and skip short discharge burst e.g. use the grid power for the tee-kettle
 		_gap_power_high = False
 		if self.gap_pow_cnt >10:
-			lg.debug('dev gap:{}[W] cnt:{} skip set power val:{}[W]'.format(self.gap_pow,self.gap_cnt,new_calc_pow))
+			lg.debug('CC gap:{}[W] cnt:{} skip set power val:{}[W]'.format(self.gap_pow,self.gap_cnt,new_calc_pow))
 			_gap_power_high = True
 
 		if new_calc_pow < 0:
