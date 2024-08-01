@@ -1396,17 +1396,17 @@ class CChargeCtrlPID(CChargeCtrlBase):
 		new_calc_pow=CChargeCtrlBase.clamp(new_calc_pow,self.discharge_pow_max, self.charge_pow_max)
 
 		# check and skip short discharge burst e.g. use the grid power for the tee-kettle
+		_gap_power_high = False
+		if self.gap_pow_cnt >10:
+			lg.debug('dev gap:{}[W] cnt:{} skip set power val:{}[W]'.format(self.gap_pow,self.gap_cnt,new_calc_pow))
+			_gap_power_high = True
+
 		if new_calc_pow < 0:
 			if self.discharge_blocking_state() is True:
 				new_calc_pow = 0
 				self.pid.reset()
 			elif self.discharge_pow_max >=0:
 				lg.debug('CC no-discharge hour profile')
-
-			_gap_power_high = False
-			if self.gap_pow_cnt >10:
-				lg.debug('dev gap:{}[W] cnt:{} skip set power val:{}[W]'.format(self.gap_pow,self.gap_cnt,tol_pow))
-				_gap_power_high = True
 
 		if (abs(tol_pow) > self.charge_pow_tol) and (_gap_power_high is False):
 			lg.info('CC set new value: pGrid:{}[W] pBat:{}[W] pCalcNew:{}[W] pOfs:{}[W]'.format(grid_pow,charge_pow,new_calc_pow,self.pow_grid_offset))
