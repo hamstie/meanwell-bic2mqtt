@@ -169,17 +169,26 @@ class CBattery():
 class CSurplus():
 
 	class Switch:
-		def __init__(self,id):
+		def __init__(self,id:int , sp):
 			self.id = id
 			self.topic = ""
 			self.dn = ""
 			self.cfg_dur_min = 0
 			self.cfg_dur_max = 0
 			self.cfg_surplus_pow_min = 0
+			self.state = 0
+			self.sp = sp # CSurplus object
 
-		def poll(self,timeslice_sec : int):
+		# return True if a switch action was done 
+		def poll(self,surpower : int,timeslice_sec : int):
 			#print("sw poll:" + str(self))
-			pass
+			return False # no switch action was done
+
+
+		def set_state(self,new_state):
+			if self.state != new_state:
+				self.state=new_state
+
 
 		def __str__(self):
 			return "SUR sw id:{} dn:{} pMin:{}[W] top:{} min/max:{}/{}[min]".format(self.id,self.dn,self.cfg_surplus_pow_min,self.topic,self.cfg_dur_min,self.cfg_dur_max)
@@ -221,7 +230,7 @@ class CSurplus():
 						id_switch = int(ltok[3])
 						sur_pow= ini.get_int('SURPLUS_SWITCH',kpfx_switch(id_switch,"SurplusMinP"),0)
 						if sur_pow >0:
-							sw = CSurplus.Switch(id_switch)
+							sw = CSurplus.Switch(id_switch,self)
 							sw.cfg_surplus_pow_min = sur_pow
 							sw.topic = ini.get_str('SURPLUS_SWITCH',kpfx_switch(id_switch,"Topic"),"")
 							sw.dn = ini.get_str('SURPLUS_SWITCH',kpfx_switch(id_switch,"Name"),"")
@@ -233,11 +242,13 @@ class CSurplus():
 			except Exception as err:
 				lg.error("cfg surplus key:{} err:{}".format(k,err))
 
+		return
 
 
-	def poll(self,timeslice_sec : int):
+
+	def poll(self,surpower : int,timeslice_sec : int):
 		for sw in self.lst:
-			sw.poll(timeslice_sec)
+			sw.poll(surpower,timeslice_sec)
 
 
 """
@@ -300,6 +311,7 @@ class CBicDevBase():
 		self.charge_pow_set = 0 # last setter of charge value from mqtt
 		#self.charge_pow_surplus = 0 # [W] surplus calculation
 		self.charge_saturation = 0 # [W] level of chagre saturation, gap between set power and charge power, always positve
+		self.pow_surplus = 0 # [W] surplus power
 		self.pow_last_grid_value = 0 # [W] last grid power value, only for statistics
 
 		self.fault = {} # dic of all fault-states
@@ -398,7 +410,6 @@ class CBicDevBase():
 				self.charge['chargeA'] = round(amp,1)  	# bat [A] discharge[-] charge[+] ?
 				pow_w = round(amp * volt)
 				self.charge['chargeP'] = pow_w  # bat [VA] discharge[-] charge[+]
-				_pow_surplus = 0
 
 				cdir = self.bic.BIC_chargemode_read()
 				if cdir == CBic.e_charge_mode_charge:
@@ -407,10 +418,10 @@ class CBicDevBase():
 					self.avg_pow_discharge.push_val(0)
 					self.charge_saturation = self.charge_pow_set - pow_w
 					if (self.charge_saturation >= CBicDevBase.DEF_SATURATION_POW) and (self.pow_last_grid_value <0):
-						_pow_surplus = abs(self.pow_last_grid_value)
-						self.avg_pow_surplus.push_val(_pow_surplus)
+						self.pow_surplus = abs(self.pow_last_grid_value)
 					else:
-						self.avg_pow_surplus.push_val(0)
+						self.pow_surplus = 0
+					self.avg_pow_surplus.push_val(self.pow_surplus)
 
 
 					# W/ms -> kW/h
@@ -424,7 +435,7 @@ class CBicDevBase():
 					self.charge['dischargedKWh'] = round(self.avg_pow_discharge.sum_get(0,0) / (1E6*3600),1)
 					amp = round((self.bic.discharge_current(CBic.e_cmd_read) / 100) * (-1),2)
 
-				self.charge['surplusP'] = _pow_surplus
+				self.charge['surplusP'] = self.pow_surplus
 				self.charge['chargeSetA'] = amp # [A] configured and readed value [A]
 			except Exception as err:
 				lg.error("dev update can't read value:" + str(err))
@@ -527,7 +538,7 @@ class CBicDevBase():
 				global mqttc
 				mqttc.publish(MQTT_T_APP + '/inv/' + str(self.id) +  '/fault',jpl,0,True) # retained
 
-		self.sp.poll(1)
+		self.sp.poll(self.pow_surplus,1)
 
 		if App.ts_1min == 1:
 			fault_check_update(True)
