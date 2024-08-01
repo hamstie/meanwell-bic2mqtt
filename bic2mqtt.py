@@ -1410,8 +1410,12 @@ class CChargeCtrlPID(CChargeCtrlBase):
 		_gap_power_high = False
 		if self.gap_pow_cnt >10:
 			#lg.debug('CC gap:{}[W] cnt:{} skip set power val:{}[W]'.format(self.gap_pow,self.gap_pow_cnt,new_calc_pow))
-			print('CC gap:{}[W] cnt:{} skip set power val:{}[W]'.format(self.gap_pow,self.gap_pow_cnt,new_calc_pow), end='\r')
-			_gap_power_high = True
+			if (self.gap_pow_cnt % 20)==0:
+				_gap_power_high = False
+			else:
+				_gap_power_high = True
+				print('CC gap:{}[W] cnt:{} skip set power val:{}[W]'.format(self.gap_pow,self.gap_pow_cnt,new_calc_pow), end='\r')
+
 
 		if new_calc_pow < 0:
 			if self.discharge_blocking_state() is True:
