@@ -830,8 +830,8 @@ class CChargeCtrlBase():
 			self.gap_pow = self.calc_pow_last - int(self.dev_bic.charge['chargeP']) # charge power of the bat from real voltage and current of the bic
 			if abs(self.gap_pow) >= self.cfg_gap_pow_range:
 				self.gap_pow_cnt += 1
-			elif abs(self.gap_pow) < (self.cfg_gap_pow_range * 0.8):
-				lg.debug('CC gap:{}[W] cnt:{} reset gap-cnt:{}[W]'.format(self.gap_pow,self.gap_pow_cnt,val_pow))
+			elif (self.gap_pow_cnt > 0) and (abs(self.gap_pow) < (self.cfg_gap_pow_range * 0.8)):
+				lg.debug('CC gap:{}[W] cnt:{} reset pow:{}[W]'.format(self.gap_pow,self.gap_pow_cnt,val_pow))
 				self.gap_pow_cnt = 0
 
 
