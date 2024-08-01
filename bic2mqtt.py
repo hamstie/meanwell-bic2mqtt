@@ -184,9 +184,25 @@ class CSurplus():
 
 		# return True if a switch action was done 
 		def poll(self,surpower : int,timeslice_sec : int):
-			#print("sw poll:" + str(self))
-			return False # no switch action was done
 
+			if  self.state==0:
+				if (surpower >= self.cfg_surplus_pow_min) and (self.sp.switch_delay_active() is False):
+					self.set_state(1)
+					return True
+			else: # state 1
+				self.dur_running_sec += timeslice_sec
+				if (self.cfg_dur_max >=0) and (self.dur_running_sec > self.cfg_dur_max):
+					self.set_state(0)
+					return True
+				else:
+					if (surpower ==0) and (self.sp.switch_delay_active() is False):
+						if (self.dur_running_sec > self.cfg_dur_min):
+							self.set_state(0)
+							return True
+			
+			return False				
+
+		
 		def reset(self):
 			self.dur_running_sec = -1
 			self.bo_try_stop = False
@@ -194,21 +210,25 @@ class CSurplus():
 		def set_state(self,new_state):
 			if self.state != new_state:
 				self.state=new_state
-				if self.state==0:
+				lg.info('SP set state:' + str(self))
+				if self.state==0: # 1->0
 					self.reset()
-				self.sp.start_switch_delay()			
+				else: # 0->1
+					self.sp.switch_delay_start()
+					self.dur_running_sec=0
+				# @todo set topic 	
 
 		def __str__(self):
-			return "SUR sw id:{} dn:{} pMin:{}[W] top:{} min/max:{}/{}[min]".format(self.id,self.dn,self.cfg_surplus_pow_min,self.topic,self.cfg_dur_min,self.cfg_dur_max)
+			return "sw id:{} dn:{} state:{} min/max:{}/{}[min] dur:{}".format(self.id,self.dn,self.state,self.cfg_dur_min,self.cfg_dur_max,self.dur_running_sec)
+			#return "sw id:{} dn:{} pMin:{}[W] top:{} min/max:{}/{}[min] dur:{}".format(self.id,self.dn,self.cfg_surplus_pow_min,self.topic,self.cfg_dur_min,self.cfg_dur_max,self.dur_running_sec)
 
 
 	def __init__(self,dev_id):
 		self.lst = [] # list off switch objects prio based
-		self.lst_to_stop = [] # list of switches to stop
-		self.lst_started = [] # list of switches to started 
 		self.cfg_switch_delay_sec = 40 # list off switch objects
 		self.tmo_switch_delay = -1 # timout for switch delay after each start/stop	 
 		self.dev_id = dev_id # device-id of the charger
+		self.cnt_sec = 0
 
 
 	"""
@@ -255,19 +275,24 @@ class CSurplus():
 
 		return
 
-	def start_switch_delay(self):
+	def switch_delay_start(self):
 		self.tmo_switch_delay = self.cfg_switch_delay_sec
 
-	def poll(self,surpower : int,timeslice_sec : int):
-		
-		if surpower ==0:
-			if len(self.lst_to_stop) >0:
-				pass
-		else: # surpower >0
-			pass
+	def switch_delay_active(self):
+		if self.tmo_switch_delay >=0:
+			return True
+		return False
 
+	def poll(self,surpower : int,timeslice_sec : int):
+
+		self.cnt_sec += timeslice_sec
+		if self.tmo_switch_delay >=0:
+			self.tmo_switch_delay -= 1
+			return
+	
 		for sw in self.lst:
-			sw.poll(surpower,timeslice_sec)
+			if sw.poll(surpower,timeslice_sec) is True:
+				break
 
 
 """
