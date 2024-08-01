@@ -178,16 +178,17 @@ class CSurplus():
 			self.cfg_surplus_pow_min = 0
 
 		def poll(self,timeslice_sec : int):
-			print("sw poll:" + str(self))
+			#print("sw poll:" + str(self))
+			pass
 
 		def __str__(self):
-			return "SUR sw id:{} dn:{} pMin:{}[W] top:{} min/max:{}/{}[min]".format(self.id,self.cfg_dn,self.cfg_surplus_pow_min,self.topic,self.cfg_dur_min,self.cfg_dur_max)
+			return "SUR sw id:{} dn:{} pMin:{}[W] top:{} min/max:{}/{}[min]".format(self.id,self.dn,self.cfg_surplus_pow_min,self.topic,self.cfg_dur_min,self.cfg_dur_max)
 
 
-	def __init__(self):
+	def __init__(self,dev_id):
 		self.lst = [] # list off switch objects prio based
 		self.cfg_switch_delay_sec = 40 # list off switch objects
-
+		self.dev_id = dev_id # device-id of the charger
 
 
 	"""
@@ -199,21 +200,22 @@ class CSurplus():
 	@param dbkey-int [SURPLUS_SWITCH]Id/X/switch/Y/MaxDurationMax (def:-1 [min] endless)  Max. time the switch is on 
 	"""
 	def cfg(self,ini,reload = False):
-		lg.info('SUR cfg id:' + str(self.id))
+		lg.info('SUR cfg id:' + str(self.dev_id))
 		self.lst.clear()
 
 		def kpfx(str_tail : str):
-			return "Id/{}/{}".format(self.id,str_tail)
+			return "Id/{}/{}".format(self.dev_id,str_tail)
 
 		def kpfx_switch(switch_id:int ,str_tail : str):
-			return "Id/{}/switch/{}/{}".format(self.id,switch_id,str_tail)
+			return "Id/{}/switch/{}/{}".format(self.dev_id,switch_id,str_tail)
 
 		self.cfg_switch_delay_sec = ini.get_int('SURPLUS_SWITCH',kpfx("SwitchDelaySec"),40)
 		d = ini.get_sec_keys('SURPLUS_SWITCH')
 		for k,v in d.items():
 			try:
-				if k.find('/switch/')>=0:
-				
+				#print('k:' + str(k))
+				if (k.find('/switch/'.lower())>=0) and (k.find('SurplusMinP'.lower())>=0):
+					#print('k:' + str(k))
 					ltok = k.split('/')
 					if len(ltok) >= 4:
 						id_switch = int(ltok[3])
@@ -224,18 +226,18 @@ class CSurplus():
 							sw.topic = ini.get_str('SURPLUS_SWITCH',kpfx_switch(id_switch,"Topic"),"")
 							sw.dn = ini.get_str('SURPLUS_SWITCH',kpfx_switch(id_switch,"Name"),"")
 							sw.cfg_dur_min = ini.get_int('SURPLUS_SWITCH',kpfx_switch(id_switch,"MinDurationMin"),5)
-							sw.cfg_dur_max = ini.get_int('SURPLUS_SWITCH',kpfx_switch(id_switch,"MinDurationMax"),-1)
+							sw.cfg_dur_max = ini.get_int('SURPLUS_SWITCH',kpfx_switch(id_switch,"MaxDurationMax"),-1)
 							self.lst.append(sw)
-							lg.info('SUR cfg +' + str(sw))		
-			
+							lg.info('SUR cfg +' + str(sw))
+
 			except Exception as err:
 				lg.error("cfg surplus key:{} err:{}".format(k,err))
+
 
 
 	def poll(self,timeslice_sec : int):
 		for sw in self.lst:
 			sw.poll(timeslice_sec)
-
 
 
 """
@@ -1059,7 +1061,7 @@ class CChargeCtrlWinter(CChargeCtrlBase):
 			temp_c = int(self.dev_bic.state['tempC'])
 			if temp_c > self.cfg_min_temp_c:
 				return True
-		except as e
+		except:
 			pass
 		lg.critical('temperature to low, waiting t:{}[C]'.format(temp_c))
 		self.sm_tmo_delay_sec = 60 * 10
