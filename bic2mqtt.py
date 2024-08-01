@@ -867,7 +867,7 @@ class CChargeCtrlBase():
 			if abs(self.gap_pow) >= self.cfg_gap_pow_range:
 				self.gap_pow_cnt += 1
 			elif (self.gap_pow_cnt > 0) and (abs(self.gap_pow) < (self.cfg_gap_pow_range * 0.8)):
-				lg.debug('CC gap:{}[W] cnt:{} reset pow:{}[W]'.format(self.gap_pow,self.gap_pow_cnt,val_pow))
+				lg.info('CC gap:{}[W] cnt:{} reset pow:{}[W]'.format(self.gap_pow,self.gap_pow_cnt,val_pow))
 				self.gap_pow_cnt = 0
 
 
@@ -1426,6 +1426,7 @@ class CChargeCtrlPID(CChargeCtrlBase):
 			#lg.debug('CC pid stoped tol:{}[W]'.format(tol_pow))
 			print('CC pid stoped tol:{}[W]'.format(tol_pow), end='\r')
 			self.pid.reset()
+			self.calc_power_set(self.calc_pow_last)
 			return
 
 		""" V1.0 try to use gap power calculation for skipping set power
