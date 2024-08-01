@@ -163,13 +163,46 @@ class CBattery():
 		return 0
 
 
-class CSurplusSwitch():
-	lst = [] # list od surplus switches
+""" surplus switch object 
+	- add switch elements to control power consumption devices
+"""
+class CSurplus():
+
+	
+	class Switch:
+		def __init__(self,id):
+			self.id = id
+			self.cfg_dur_min = 0
+			self.cfg_dur_max = 0
+			self.cfg_surplus_pow_min = 0
+			self.cfg_topic = ""
+
+
+		def poll(self,timeslice_sec : int):
+			pass
+
 
 	def __init__(self):
+		self.lst = [] # list off switch objects prio based
+		self.cfg_switch_delay_sec = 40 # list off switch objects
+
+	# append a switch
+	def append(self):
 		pass
 
-	def poll(timeslice_sec:int):
+	"""
+	@param dbkey-int [SURPLUS_SWITCH]SwitchDelaySec  def:40[s] Delay between each switch action (on/off) to ensure proper grid power response for new decisions.
+	@param dbkey-str [SURPLUS_SWITCH]Id/X/switch/Y/Name " name to debug each switch will be switched on if surplus reached the threshold
+	@param dbkey-str [SURPLUS_SWITCH]Id/X/switch/Y/Topic switch topic payload: [0,1]
+	@param dbkey-int [SURPLUS_SWITCH]Id/X/switch/Y/SurplusMinP def:0[W] (0[W] is disabled) Min. power to switch on the switch
+	@param dbkey-int [SURPLUS_SWITCH]Id/X/switch/Y/MinDurationMin def:5[min]
+	@param dbkey-int [SURPLUS_SWITCH]Id/X/switch/Y/MaxDurationMax (def:-1 [min] endless)  Max. time the switch is on 
+	"""
+	def cfg(self,ini,hot_cfg = False):
+		pass
+
+
+	def poll(self,timeslice_sec : int):
 		pass
 
 
@@ -1407,7 +1440,8 @@ class CChargeCtrlPID(CChargeCtrlBase):
 		_gap_power_high = False
 		if self.gap_pow_cnt >10:
 			#lg.debug('CC gap:{}[W] cnt:{} skip set power val:{}[W]'.format(self.gap_pow,self.gap_pow_cnt,new_calc_pow))
-			if (self.gap_pow_cnt % 20)==0:
+			new_calc_pow=round(CChargeCtrlBase.clamp(new_calc_pow,new_calc_pow - (self.cfg_gap_pow_range * 1.2),new_calc_pow + (self.cfg_gap_pow_range * 1.2)),-1)
+			if (self.gap_pow_cnt % 60)==0:
 				_gap_power_high = False
 			else:
 				_gap_power_high = True
