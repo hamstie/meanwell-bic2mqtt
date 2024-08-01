@@ -1429,13 +1429,15 @@ class CChargeCtrlPID(CChargeCtrlBase):
 			self.calc_power_set(self.calc_pow_last)
 			return
 
+
+
 		""" V1.0 try to use gap power calculation for skipping set power
 		 charge_pow_r20 = round_to_twenty(charge_pow) # roundto10
 		 prevent, that the set values running away from the real bat-chargeing level, the charge power is limited
 		new_calc_pow=CChargeCtrlBase.clamp(round(new_calc_pow,-1),charge_pow_r20-100,charge_pow_r20+100)
 		"""
 
-		new_calc_pow=CChargeCtrlBase.clamp(new_calc_pow,self.discharge_pow_max, self.charge_pow_max) # configured min/max one top
+		new_calc_pow=CChargeCtrlBase.clamp(round(new_calc_pow,-1),self.discharge_pow_max, self.charge_pow_max) # configured min/max one top
 
 		# check and skip short discharge burst e.g. use the grid power for the tee-kettle
 		_gap_power_high = False
