@@ -831,7 +831,7 @@ class CChargeCtrlBase():
 			if abs(self.gap_pow) >= self.cfg_gap_pow_range:
 				self.gap_pow_cnt += 1
 			elif abs(self.gap_pow) < (self.cfg_gap_pow_range * 0.8):
-				lg.debug('CC gap:{}[W] cnt:{} reset gap-cnt:{}[W]'.format(self.gap_pow,self.gap_cnt,val_pow))
+				lg.debug('CC gap:{}[W] cnt:{} reset gap-cnt:{}[W]'.format(self.gap_pow,self.gap_pow_cnt,val_pow))
 				self.gap_pow_cnt = 0
 
 
@@ -1400,7 +1400,7 @@ class CChargeCtrlPID(CChargeCtrlBase):
 		# check and skip short discharge burst e.g. use the grid power for the tee-kettle
 		_gap_power_high = False
 		if self.gap_pow_cnt >10:
-			lg.debug('CC gap:{}[W] cnt:{} skip set power val:{}[W]'.format(self.gap_pow,self.gap_cnt,new_calc_pow))
+			lg.debug('CC gap:{}[W] cnt:{} skip set power val:{}[W]'.format(self.gap_pow,self.gap_pow_cnt,new_calc_pow))
 			_gap_power_high = True
 
 		if new_calc_pow < 0:
