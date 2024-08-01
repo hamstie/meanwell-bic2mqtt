@@ -217,7 +217,7 @@ class CBicDevBase():
 		self.state['dcBatV'] = 0 # bat voltage DV [V]
 		self.state['capBatPc'] = 0 # bat capacity [%]
 
-		self.avg_pow_charge = CMAvg(24*3600*1000) #average calculation fr charged [kWh]
+		self.avg_pow_charge = CMAvg(24*3600*1000) #average calculation of charged [kWh]
 		self.avg_pow_discharge = CMAvg(24*3600*1000) #average calculation of dischrged [kWh]
 		self.avg_pow_surplus = CMAvg(24*3600*1000) #average calculation of purplus power [kWh]
 
@@ -255,7 +255,8 @@ class CBicDevBase():
 		self.tmo_charge_ms =  0 #timeslice update state
 		self.cfg_tmo_charge_ms = 2000 #timeslice update charge values
 
-
+	def avg_get_min(minute : int):
+		return self.avg_pow.avg_get(minute*60*1000,-1)
 
 	# read from bic some common stuff
 	# 	@topic-pub <main-app>/inv/<id>/info
@@ -724,8 +725,9 @@ class CChargeCtrlBase():
 
 		self.avg_pow = CMAvg(3600*1000) #average calculation , store values for on hour
 		self.pow_grid_offset = 0 # [W] offset power for the calculation, move the zero point of power balance
+		self.charge_pow_last = 0 # [W] last bat charged power
 		self.charge_pow_tol = 10 # [W] don't set new charge value if the running one is nearby
-		self.cfg_gap_pow_range = CChargeCtrlBase.DEF_MAX_POW_GAP # [W] >0 enable gap power handling 
+		self.cfg_gap_pow_range = CChargeCtrlBase.DEF_MAX_POW_GAP # [W] >0 enable gap power handling
 		self.gap_pow = 0 # [W] gap between set power and bat charging/discharging (happend for saturation/empty bat)
 		self.gap_pow_cnt = 0 # DEF_MAX_POW_GAP was reached increase counter else reset counter
 		# will be set later with the charge profile
@@ -823,11 +825,12 @@ class CChargeCtrlBase():
 	# set the calculated power
 	def calc_power_set(self,val_pow : int):
 		self.calc_pow_last = val_pow
+		self.charge_pow_last = int(self.dev_bic.charge['chargeP'])
 		if val_pow >0:
 			self.t_last_charge = datetime.now()
 
 		if 	self.cfg_gap_pow_range > 0:
-			self.gap_pow = self.calc_pow_last - int(self.dev_bic.charge['chargeP']) # charge power of the bat from real voltage and current of the bic
+			self.gap_pow = self.calc_pow_last - self.charge_pow_last # charge power of the bat from real voltage and current of the bic
 			if abs(self.gap_pow) >= self.cfg_gap_pow_range:
 				self.gap_pow_cnt += 1
 			elif (self.gap_pow_cnt > 0) and (abs(self.gap_pow) < (self.cfg_gap_pow_range * 0.8)):
@@ -874,6 +877,13 @@ class CChargeCtrlBase():
 				self.tmo_grid_sec-=1
 				if self.tmo_grid_sec < 0:
 					self.on_cb_grid_power_tmo()
+
+
+			if self.ts_1min == 1:
+				lg.info('CC pGrid:{}[W] pGridAvg:1m:{} 2m:{} 5m:{} 1h:{} offs:{}[W]'.format(self.grid_pow,self.avg_get_min(1),self.avg_get_min(2),self.avg_get_min(5),self.avg_get_min(60),self.pow_grid_offset))
+			elif self.ts_1min == 2:
+				lg.info('CC pGrid:{}[W] pBat:{}[W] pCalcLast:{}[W] pGap:{}[W]'.format(self.grid_pow,self.charge_pow_last,self.calc_pow_last,self.gap_pow))
+
 		return
 
 
@@ -1090,15 +1100,13 @@ class CChargeCtrlSimple(CChargeCtrlBase):
 		- haus/kel/pgrid/pnow
 	"""
 	def on_cb_grid_power(self,grid_pow):
-		def avg2min(minute : int):
-			return self.avg_pow.avg_get(minute*60*1000,-1)
 
 		super().on_cb_grid_power(grid_pow)
 
 		#lg.info('CC new grid power value {} [W]'.format(self.grid_pow))
 		self.avg_pow.push_val(grid_pow)
 
-		lg.info('CC pGrid:{}[W] pGridAvg:1m:{} 2m:{} 5m:{} 1h:{} offs:{}[W]'.format(grid_pow,avg2min(1),avg2min(2),avg2min(5),avg2min(60),self.pow_grid_offset))
+		#lg.info('CC pGrid:{}[W] pGridAvg:1m:{} 2m:{} 5m:{} 1h:{} offs:{}[W]'.format(grid_pow,self.avg_get_min(1),self.avg_get_min(2),self.avg_get_min(5),self.avg_get_min(60),self.pow_grid_offset))
 		if self.enabled is True:
 			self.calc_power(grid_pow)
 
@@ -1325,7 +1333,7 @@ class CChargeCtrlPID(CChargeCtrlBase):
 		#lg.info('CC new grid power value {} [W]'.format(self.grid_pow))
 		#grid_pow=self.sm_zero_tol(grid_pow)
 		self.avg_pow.push_val(grid_pow)
-		lg.info('CC pGrid:{}[W] pGridAvg:1m:{} 2m:{} 5m:{} 1h:{} offs:{}[W]'.format(grid_pow,avg2min(1),avg2min(2),avg2min(5),avg2min(60),self.pow_grid_offset))
+		#lg.info('CC pGrid:{}[W] pGridAvg:1m:{} 2m:{} 5m:{} 1h:{} offs:{}[W]'.format(grid_pow,self.avg_get_min(1),self.avg_get_min(2),self.avg_get_min(5),self.avg_get_min(60),self.pow_grid_offset))
 		#grid_pow=self.sm_zero_tol(grid_pow)
 		if self.enabled is True:
 			self.calc_power(grid_pow)
@@ -1385,7 +1393,8 @@ class CChargeCtrlPID(CChargeCtrlBase):
 			new_calc_pow = self.calc_pow_last + self.pid.step(grid_pow)
 			#new_calc_pow = charge_pow + self.pid.step(grid_pow)
 		else:
-			lg.debug('CC pid stoped tol:{}[W]'.format(tol_pow))
+			#lg.debug('CC pid stoped tol:{}[W]'.format(tol_pow))
+			print('CC pid stoped tol:{}[W]'.format(tol_pow), end='\t')
 			self.pid.reset()
 			return
 
@@ -1400,7 +1409,8 @@ class CChargeCtrlPID(CChargeCtrlBase):
 		# check and skip short discharge burst e.g. use the grid power for the tee-kettle
 		_gap_power_high = False
 		if self.gap_pow_cnt >10:
-			lg.debug('CC gap:{}[W] cnt:{} skip set power val:{}[W]'.format(self.gap_pow,self.gap_pow_cnt,new_calc_pow))
+			#lg.debug('CC gap:{}[W] cnt:{} skip set power val:{}[W]'.format(self.gap_pow,self.gap_pow_cnt,new_calc_pow))
+			print('CC gap:{}[W] cnt:{} skip set power val:{}[W]'.format(self.gap_pow,self.gap_pow_cnt,new_calc_pow), end='\t')
 			_gap_power_high = True
 
 		if new_calc_pow < 0:
@@ -1420,12 +1430,18 @@ class CChargeCtrlPID(CChargeCtrlBase):
 			mqttc.publish(topic,json.dumps(dpl, sort_keys=False, indent=0),0,False) # no retain
 			#self.calc_power_set(new_calc_pow)
 		else:
-			lg.info('CC const value: pGrid:{}[W] pBat:{}[W] pCalcLast:{}[W] pOfs:{}[W] pGap:{}[W]'.format(grid_pow,charge_pow,new_calc_pow,self.pow_grid_offset,self.gap_pow))
+			pass
+			#lg.info('CC const value: pGrid:{}[W] pBat:{}[W] pCalcLast:{}[W] pOfs:{}[W] pGap:{}[W]'.format(grid_pow,charge_pow,new_calc_pow,self.pow_grid_offset,self.gap_pow))
+
 		self.calc_power_set(new_calc_pow)
 
 		return
 
 	def poll(self,timeslice_ms):
+
+		def avg2min(minute : int):
+			return self.avg_pow.avg_get(minute*60*1000,-1)
+
 		super().poll(timeslice_ms)
 		if self.ts_1min == 1:
 			if CCCProfile.hour_changed() is True:
@@ -1435,7 +1451,10 @@ class CChargeCtrlPID(CChargeCtrlBase):
 				self.charge_pow_max = cprof.pow_charge_max
 				self.pow_grid_offset = cprof.pow_grid_offset
 				self.pid.cfg_offset = cprof.pow_grid_offset
+		
+		return
 
+			
 	def reset(self):
 		super().reset()
 		self.pid.reset()
