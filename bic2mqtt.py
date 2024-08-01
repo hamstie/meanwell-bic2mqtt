@@ -1381,17 +1381,14 @@ class CChargeCtrlPID(CChargeCtrlBase):
 		if is_running is False:
 			return
 
-		charge_pow = self.dev_bic.charge['chargeP'] # charge power of the bat from real voltage and current of the bic
 		tol_pow=int(grid_pow - self.pow_grid_offset)
 
 		if self.grid_power_dir_changed(grid_pow) is True:
 			lg.critical("CC grid power changed direction:pid reset")
 			self.reset()
 			new_calc_pow = 0
-			charge_pow = 0
 		elif abs(tol_pow) > self.charge_pow_tol:
 			new_calc_pow = self.calc_pow_last + self.pid.step(grid_pow)
-			#new_calc_pow = charge_pow + self.pid.step(grid_pow)
 		else:
 			#lg.debug('CC pid stoped tol:{}[W]'.format(tol_pow))
 			print('CC pid stoped tol:{}[W]'.format(tol_pow), end='\r')
@@ -1425,7 +1422,7 @@ class CChargeCtrlPID(CChargeCtrlBase):
 				lg.debug('CC no-discharge hour profile')
 
 		if (abs(tol_pow) > self.charge_pow_tol) and (_gap_power_high is False):
-			lg.info('CC set new value: pGrid:{}[W] pBat:{}[W] pCalcNew:{}[W] pOfs:{}[W]'.format(grid_pow,charge_pow,new_calc_pow,self.pow_grid_offset))
+			lg.info('CC set new value: pGrid:{}[W] pCalcNew:{}[W] pOfs:{}[W]'.format(grid_pow,new_calc_pow,self.pow_grid_offset))
 			topic = self.dev_bic.top_inv + '/charge/set'
 			dpl = {"var":"chargeP"}
 			dpl['val'] = int(new_calc_pow)
@@ -1435,7 +1432,7 @@ class CChargeCtrlPID(CChargeCtrlBase):
 			#self.calc_power_set(new_calc_pow)
 		else:
 			pass
-			#lg.info('CC const value: pGrid:{}[W] pBat:{}[W] pCalcLast:{}[W] pOfs:{}[W] pGap:{}[W]'.format(grid_pow,charge_pow,new_calc_pow,self.pow_grid_offset,self.gap_pow))
+			#lg.info('CC const value: pGrid:{}[W] pCalcLast:{}[W] pOfs:{}[W] pGap:{}[W]'.format(grid_pow,new_calc_pow,self.pow_grid_offset,self.gap_pow))
 
 		self.calc_power_set(new_calc_pow)
 
