@@ -1394,7 +1394,7 @@ class CChargeCtrlPID(CChargeCtrlBase):
 			#new_calc_pow = charge_pow + self.pid.step(grid_pow)
 		else:
 			#lg.debug('CC pid stoped tol:{}[W]'.format(tol_pow))
-			print('CC pid stoped tol:{}[W]'.format(tol_pow), end='\t')
+			print('CC pid stoped tol:{}[W]'.format(tol_pow), end='\r')
 			self.pid.reset()
 			return
 
@@ -1410,7 +1410,7 @@ class CChargeCtrlPID(CChargeCtrlBase):
 		_gap_power_high = False
 		if self.gap_pow_cnt >10:
 			#lg.debug('CC gap:{}[W] cnt:{} skip set power val:{}[W]'.format(self.gap_pow,self.gap_pow_cnt,new_calc_pow))
-			print('CC gap:{}[W] cnt:{} skip set power val:{}[W]'.format(self.gap_pow,self.gap_pow_cnt,new_calc_pow), end='\t')
+			print('CC gap:{}[W] cnt:{} skip set power val:{}[W]'.format(self.gap_pow,self.gap_pow_cnt,new_calc_pow), end='\r')
 			_gap_power_high = True
 
 		if new_calc_pow < 0:
