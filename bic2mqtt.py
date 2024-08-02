@@ -311,7 +311,7 @@ class CSurplus():
 	def dump(self):
 		print("dump surplus switches pSur:{}[W] sw-delay:{}[s]".format(self.surpower_last, self.tmo_switch_delay))
 		for sw in self.lst:
-			print(sw)
+			print(" -" + sw)
 
 	def poll(self,surpower : int,timeslice_sec : int):
 		self.surpower_last = surpower
@@ -330,11 +330,12 @@ class CSurplus():
 			surpower = 0
 		"""
 
+		# @todo for surplus==0 : stop switches in revers order
 		for sw in self.lst:
 			if sw.poll(surpower,timeslice_sec) is True:
 				lg.info('SP:' + str(sw))
 
-		if ((self.cnt_sec % 60) == 0) and (len(self.lst) >0)  and  (surpower > -99): # disabled check for surpower 
+		if ((self.cnt_sec % 60) == 0) and (len(self.lst) >0)  and  (surpower > 0): 
 			self.dump()
 		return
 
