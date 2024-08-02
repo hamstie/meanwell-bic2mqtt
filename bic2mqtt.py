@@ -176,6 +176,8 @@ class CSurplus():
 			self.dn = ""
 			self.cfg_dur_min_sec = 0
 			self.dur_running_sec = -1 # running duration [s]
+			self.cfg_block_sec = -1 #  block time
+			self.tmo_block_sec = -1 # block re-set of switch [s] if dur_max_sec was set
 			self.cfg_dur_max_sec = 0
 			self.tmo_dur_max_sec = -1
 			self.cfg_surplus_pow_min = 0
@@ -187,13 +189,16 @@ class CSurplus():
 		def poll(self,surpower : int,timeslice_sec : int):
 
 			if self.state >0:
-				self.dur_running_sec += timeslice_sec		
+				self.dur_running_sec += timeslice_sec
+
+			if self.tmo_block_sec >=0:
+				self.tmo_block_sec -= timeslice_sec		
 
 			if self.sp.switch_delay_active() is True:
 				return
 
 			if  self.state==0:
-				if (surpower >= self.cfg_surplus_pow_min):
+				if (surpower >= self.cfg_surplus_pow_min) and (self.tmo_block_sec <0):
 					self.set_state(1)
 					return True
 			else: # state 1
@@ -211,6 +216,7 @@ class CSurplus():
 		
 		def reset(self):
 			self.dur_running_sec = -1
+			# not allow to reset here self.dur_block_sec = -1
 			self.bo_try_stop = False
 
 		def set_state(self,new_state):
@@ -222,6 +228,8 @@ class CSurplus():
 				else: # 0->1
 					self.sp.switch_delay_start()
 					self.dur_running_sec = 0
+					if self.cfg_block_sec >0:
+						self.tmo_block_sec = self.cfg_block_sec
 				# @todo set topic
 				global mqttc
 				mqttc.publish(self.topic,str(self.state),0,True) #  retained !!  not retained but cycled ?
@@ -244,7 +252,8 @@ class CSurplus():
 	@param dbkey-str [SURPLUS_SWITCH]Id/X/switch/Y/Topic switch topic payload: [0,1]
 	@param dbkey-int [SURPLUS_SWITCH]Id/X/switch/Y/SurplusMinP def:0[W] (0[W] is disabled) Min. power to switch on the switch
 	@param dbkey-int [SURPLUS_SWITCH]Id/X/switch/Y/MinDurationMin def:5[min]
-	@param dbkey-int [SURPLUS_SWITCH]Id/X/switch/Y/MaxDurationMax (def:-1 [min] endless)  Max. time the switch is on 
+	@param dbkey-int [SURPLUS_SWITCH]Id/X/switch/Y/MaxDurationMax (def:-1 [min] endless)  Max. time the switch is on
+	@param dbkey-int [SURPLUS_SWITCH]Id/X/switch/Y/BlockRestart (def:-1 [min] don't clock restart)  block restart time to re-set 
 	"""
 	def cfg(self,ini,reload = False):
 		lg.info('SUR cfg id:' + str(self.dev_id))
@@ -274,6 +283,7 @@ class CSurplus():
 							sw.dn = ini.get_str('SURPLUS_SWITCH',kpfx_switch(id_switch,"Name"),"")
 							sw.cfg_dur_min_sec = ini.get_int('SURPLUS_SWITCH',kpfx_switch(id_switch,"MinDurationMin"),5) * 60
 							sw.cfg_dur_max_sec = ini.get_int('SURPLUS_SWITCH',kpfx_switch(id_switch,"MaxDurationMax"),-1) * 60
+							sw.cfg_block_sec = ini.get_int('SURPLUS_SWITCH',kpfx_switch(id_switch,"BlockRestart"),-1) * 60
 							self.lst.append(sw)
 							lg.info('SUR cfg +' + str(sw))
 
@@ -292,7 +302,7 @@ class CSurplus():
 
 
 	def dump(self):
-		print("dump surplus switches:")
+		print("dump surplus switches sw-delay:{}[s]".format(self.tmo_switch_delay))
 		for sw in self.lst:
 			print(sw)
 
