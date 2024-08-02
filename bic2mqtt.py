@@ -303,15 +303,17 @@ class CSurplus():
 			self.tmo_switch_delay -= 1
 			# return not because of the timing stuff
 
+		"""
 		#@fixme testcode
-		if self.cnt > 30 and self.cnt < 120:
+		if self.cnt_sec > 30 and self.cnt_sec < 120:
 			surpower = 500
+		"""
 
 		for sw in self.lst:
 			if sw.poll(surpower,timeslice_sec) is True:
 				break
 
-		if self.cnt_sec % 30:
+		if (self.cnt_sec % 30) == 0:
 			self.dump()
 		return
 
