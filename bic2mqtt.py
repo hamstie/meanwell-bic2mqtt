@@ -3,9 +3,10 @@ APP_VER = "1.00"
 APP_NAME = "bic2mqtt"
 
 """
- fst:05.04.2024 lst:31.07.2024
+ fst:05.04.2024 lst:02.07.2024
  Meanwell BIC2200-XXCAN to mqtt bridge
- V1.00 ..surplus-switch object, gap power handling
+ V1.00 +surplus-switch object, 
+ 		power-gap handling, reduce bic write commands
  V0.92 -round min/max pid charge power to 10
  V0.91 +Charge control for the winter
  V0.81 released-surplus, used the grid power as power value
@@ -173,9 +174,9 @@ class CSurplus():
 			self.id = id
 			self.topic = ""
 			self.dn = ""
-			self.cfg_dur_min = 0
+			self.cfg_dur_min_sec = 0
 			self.dur_running_sec = -1 # running duration [s]
-			self.cfg_dur_max = 0
+			self.cfg_dur_max_sec = 0
 			self.tmo_dur_max_sec = -1
 			self.cfg_surplus_pow_min = 0
 			self.state = 0
@@ -185,18 +186,23 @@ class CSurplus():
 		# return True if a switch action was done 
 		def poll(self,surpower : int,timeslice_sec : int):
 
+			if self.state >0:
+				self.dur_running_sec += timeslice_sec		
+
+			if self.sp.switch_delay_active() is True:
+				return
+
 			if  self.state==0:
-				if (surpower >= self.cfg_surplus_pow_min) and (self.sp.switch_delay_active() is False):
+				if (surpower >= self.cfg_surplus_pow_min):
 					self.set_state(1)
 					return True
 			else: # state 1
-				self.dur_running_sec += timeslice_sec
-				if (self.cfg_dur_max >=0) and (self.dur_running_sec > self.cfg_dur_max):
+				if (self.cfg_dur_max_sec >=0) and (self.dur_running_sec > self.cfg_dur_max_sec):
 					self.set_state(0)
 					return True
 				else:
-					if (surpower ==0) and (self.sp.switch_delay_active() is False):
-						if (self.dur_running_sec > self.cfg_dur_min):
+					if (surpower ==0):
+						if (self.dur_running_sec > self.cfg_dur_min_sec):
 							self.set_state(0)
 							return True
 			
@@ -215,13 +221,14 @@ class CSurplus():
 					self.reset()
 				else: # 0->1
 					self.sp.switch_delay_start()
-					self.dur_running_sec=0
-				# @todo set topic 	
+					self.dur_running_sec = 0
+				# @todo set topic
+				global mqttc
+				mqttc.publish(self.topic,str(self.state),0,True) #  retained !!  not retained but cycled ?
 
 		def __str__(self):
-			return "sw id:{} dn:{} state:{} min/max:{}/{}[min] dur:{}".format(self.id,self.dn,self.state,self.cfg_dur_min,self.cfg_dur_max,self.dur_running_sec)
+			return "sw id:{} dn:{} state:{} min/max:{}/{}[min] dur:{}".format(self.id,self.dn,self.state,self.cfg_dur_min_sec,self.cfg_dur_max_sec,self.dur_running_sec)
 			#return "sw id:{} dn:{} pMin:{}[W] top:{} min/max:{}/{}[min] dur:{}".format(self.id,self.dn,self.cfg_surplus_pow_min,self.topic,self.cfg_dur_min,self.cfg_dur_max,self.dur_running_sec)
-
 
 	def __init__(self,dev_id):
 		self.lst = [] # list off switch objects prio based
@@ -265,8 +272,8 @@ class CSurplus():
 							sw.cfg_surplus_pow_min = sur_pow
 							sw.topic = ini.get_str('SURPLUS_SWITCH',kpfx_switch(id_switch,"Topic"),"")
 							sw.dn = ini.get_str('SURPLUS_SWITCH',kpfx_switch(id_switch,"Name"),"")
-							sw.cfg_dur_min = ini.get_int('SURPLUS_SWITCH',kpfx_switch(id_switch,"MinDurationMin"),5)
-							sw.cfg_dur_max = ini.get_int('SURPLUS_SWITCH',kpfx_switch(id_switch,"MaxDurationMax"),-1)
+							sw.cfg_dur_min_sec = ini.get_int('SURPLUS_SWITCH',kpfx_switch(id_switch,"MinDurationMin"),5) * 60
+							sw.cfg_dur_max_sec = ini.get_int('SURPLUS_SWITCH',kpfx_switch(id_switch,"MaxDurationMax"),-1) * 60
 							self.lst.append(sw)
 							lg.info('SUR cfg +' + str(sw))
 
@@ -283,16 +290,30 @@ class CSurplus():
 			return True
 		return False
 
+
+	def dump(self):
+		print("dump surplus switches:")
+		for sw in self.lst:
+			print(sw)
+
 	def poll(self,surpower : int,timeslice_sec : int):
 
 		self.cnt_sec += timeslice_sec
 		if self.tmo_switch_delay >=0:
 			self.tmo_switch_delay -= 1
-			return
-	
+			# return not because of the timing stuff
+
+		#@fixme testcode
+		if self.cnt > 30 and self.cnt < 120:
+			surpower = 500
+
 		for sw in self.lst:
 			if sw.poll(surpower,timeslice_sec) is True:
 				break
+
+		if self.cnt_sec % 30:
+			self.dump()
+		return
 
 
 """
