@@ -324,7 +324,7 @@ class CSurplus():
 
 		for sw in self.lst:
 			if sw.poll(surpower,timeslice_sec) is True:
-				lg.info('SP:'sw.dump())
+				lg.info('SP:' + str(sw))
 
 		if (self.cnt_sec % 30) == 0:
 			self.dump()
