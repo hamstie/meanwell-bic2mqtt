@@ -71,7 +71,7 @@ lg = None # logger
 # print with CR without LF and always 80 char long, willed with spaces
 def misc_print_cr(cr_str : str):
 	cr_str = '{:80}'.format(cr_str)
-	print(cs_str,end='\r')
+	print(cr_str,end='\r')
 
 # simple config/ini file parser
 class CIni:
@@ -320,7 +320,7 @@ class CSurplus():
 			self.tmo_switch_delay -= 1
 			# return not because of the timing stuff
 
-		
+		"""
 		#@fixme testcode @ startup
 		if self.cnt_sec > 30 and self.cnt_sec < 120:
 			surpower = 500
@@ -328,6 +328,7 @@ class CSurplus():
 			surpower = 600
 		else:
 			surpower = 0
+		"""
 
 		for sw in self.lst:
 			if sw.poll(surpower,timeslice_sec) is True:
@@ -1561,7 +1562,7 @@ class CChargeCtrlPID(CChargeCtrlBase):
 		else:
 			#lg.debug('CC pid stoped tol:{}[W]'.format(tol_pow))
 			#print('CC pid stoped tol:{}[W]'.format(tol_pow), end='\r')
-			misc_print_c('CC pid stoped tol:{}[W]'.format(tol_pow))
+			misc_print_cr('CC pid stoped tol:{}[W]'.format(tol_pow))
 			self.pid.reset()
 			self.calc_power_set(self.calc_pow_last)
 			return
