@@ -68,9 +68,9 @@ app = None # main application
 lg = None # logger
 
 
-# print with CR without LF and always 80 char long, willed with spaces
+# print with CR without LF and always 120 char long, willed with spaces
 def misc_print_cr(cr_str : str):
-	cr_str = '{:80}'.format(cr_str)
+	cr_str = '{:120}'.format(cr_str)
 	print(cr_str,end='\r')
 
 # simple config/ini file parser
@@ -241,7 +241,7 @@ class CSurplus():
 				mqttc.publish(self.topic,str(self.state),0,True) #  retained !!  not retained but cycled ?
 
 		def __str__(self):
-			return "sw id:{} dn:{} state:{} min/max:{}/{}[min] dur:{}[s] btmo:{}[s]".format(self.id,self.dn,self.state,self.cfg_dur_min_sec,self.cfg_dur_max_sec,self.dur_running_sec,self.tmo_block_sec)
+			return "sw id:{} dn:{} state:{} min/max:{}/{}[min] dur:{}[s] btmo:{}[s]".format(self.id,self.dn,self.state,(self.cfg_dur_min_sec / 60),(self.cfg_dur_max_sec / 60),self.dur_running_sec,self.tmo_block_sec)
 			#return "sw id:{} dn:{} pMin:{}[W] top:{} min/max:{}/{}[min] dur:{}".format(self.id,self.dn,self.cfg_surplus_pow_min,self.topic,self.cfg_dur_min,self.cfg_dur_max,self.dur_running_sec)
 
 	def __init__(self,dev_id):
