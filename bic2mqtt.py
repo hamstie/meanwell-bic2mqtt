@@ -67,6 +67,12 @@ ini = None # Ini-Config parser
 app = None # main application
 lg = None # logger
 
+
+# print with CR without LF and always 80 char long, willed with spaces
+def misc_print_cr(cr_str : str):
+	cr_str = '{:80}'.format(cr_str)
+	print(cs_str,end='\r')
+
 # simple config/ini file parser
 class CIni:
 	def __init__(self,fname : str):
@@ -244,6 +250,7 @@ class CSurplus():
 		self.tmo_switch_delay = -1 # timout for switch delay after each start/stop	 
 		self.dev_id = dev_id # device-id of the charger
 		self.cnt_sec = 0
+		self.surpower_last = 0
 
 
 	"""
@@ -302,12 +309,12 @@ class CSurplus():
 
 
 	def dump(self):
-		print("dump surplus switches sw-delay:{}[s]".format(self.tmo_switch_delay))
+		print("dump surplus switches pSur:{}[W] sw-delay:{}[s]".format(self.surpower_last, self.tmo_switch_delay))
 		for sw in self.lst:
 			print(sw)
 
 	def poll(self,surpower : int,timeslice_sec : int):
-
+		self.surpower_last = surpower
 		self.cnt_sec += timeslice_sec
 		if self.tmo_switch_delay >=0:
 			self.tmo_switch_delay -= 1
@@ -1553,7 +1560,8 @@ class CChargeCtrlPID(CChargeCtrlBase):
 			new_calc_pow = self.calc_pow_last + self.pid.step(grid_pow)
 		else:
 			#lg.debug('CC pid stoped tol:{}[W]'.format(tol_pow))
-			print('CC pid stoped tol:{}[W]'.format(tol_pow), end='\r')
+			#print('CC pid stoped tol:{}[W]'.format(tol_pow), end='\r')
+			misc_print_c('CC pid stoped tol:{}[W]'.format(tol_pow))
 			self.pid.reset()
 			self.calc_power_set(self.calc_pow_last)
 			return
@@ -1577,8 +1585,8 @@ class CChargeCtrlPID(CChargeCtrlBase):
 				_gap_power_high = False
 			else:
 				_gap_power_high = True
-				print('CC gap:{}[W] cnt:{} skip set power val:{}[W]'.format(self.gap_pow,self.gap_pow_cnt,new_calc_pow), end='\r')
-
+				#print('CC gap:{}[W] cnt:{} skip set power val:{}[W]'.format(self.gap_pow,self.gap_pow_cnt,new_calc_pow), end='\r')
+				misc_print_cr('CC gap:{}[W] cnt:{} skip set power val:{}[W]'.format(self.gap_pow,self.gap_pow_cnt,new_calc_pow))
 
 		if new_calc_pow < 0:
 			if self.discharge_blocking_state() is True:
