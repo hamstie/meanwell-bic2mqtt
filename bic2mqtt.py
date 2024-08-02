@@ -314,7 +314,7 @@ class CSurplus():
 			# return not because of the timing stuff
 
 		
-		#@fixme testcode
+		#@fixme testcode @ startup
 		if self.cnt_sec > 30 and self.cnt_sec < 120:
 			surpower = 500
 		elif self.cnt_sec > 180 and self.cnt_sec < 320:
@@ -326,7 +326,7 @@ class CSurplus():
 			if sw.poll(surpower,timeslice_sec) is True:
 				lg.info('SP:' + str(sw))
 
-		if (self.cnt_sec % 30) == 0:
+		if ((self.cnt_sec % 60) == 0) and (len(self.lst) >0)  and  (surpower > -99): # disabled check for surpower 
 			self.dump()
 		return
 
