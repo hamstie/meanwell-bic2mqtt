@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-APP_VER = "1.00"
+APP_VER = "1.01"
 APP_NAME = "bic2mqtt"
 
 """
- fst:05.04.2024 lst:02.07.2024
+ fst:05.04.2024 lst:05.07.2024
  Meanwell BIC2200-XXCAN to mqtt bridge
- V1.00 +surplus-switch object, 
+ V1.01 +surplus-switch object, 
  		power-gap handling, reduce bic write commands
  V0.92 -round min/max pid charge power to 10
  V0.91 +Charge control for the winter
@@ -311,7 +311,7 @@ class CSurplus():
 	def dump(self):
 		print("dump surplus switches pSur:{}[W] sw-delay:{}[s]".format(self.surpower_last, self.tmo_switch_delay))
 		for sw in self.lst:
-			print(" -" + sw)
+			print(" -" + str(sw))
 
 	def poll(self,surpower : int,timeslice_sec : int):
 		self.surpower_last = surpower
