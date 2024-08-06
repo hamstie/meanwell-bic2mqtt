@@ -9,7 +9,7 @@ import math
 	- parameter:list length for the average 
 """
 class CMAvg():
-	VER=0.4
+	VER=0.5
 	
 	def __init__(self,max_time_ms,max_values=-1):
 		self.cfg_max_time_ms=max_time_ms # max. time [ms] to store, values -1: inifinite
@@ -145,7 +145,10 @@ class CMAvg():
 	"""
 	def avg_get(self,time_ms=0,round_digits=2):
 		val_sum,time_ms =  self._get_sum_and_time(time_ms,round_digits)
-		return round(val_sum / time_ms,round_digits)
+		if time_ms == 0:
+			return round(val_sum,round_digits)
+		else:
+			return round(val_sum / time_ms,round_digits)
 
 	# @return the min and max value
 	# if non value in list 0,0 will be returned
