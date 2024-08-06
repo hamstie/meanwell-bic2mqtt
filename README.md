@@ -119,8 +119,21 @@ To control charging and discharging with this app.
 |Id/X/Profile/Hour/h/MaxChargePower    | def:0 [W]      | Charge profiles, per hour [0..23]    |
 |Id/X/Profile/Hour/h/MaxDischargePower |def:0 [W]       | Discharge profiles, per hour [0..23] |
 |Id/X/Profile/Hour/h/GridOffsetPower   |def:0 [W]       | Grid(Smart-Meter) offset , per hour [0..23] |
+|Id/X/switch/Y/BlockRestart   | def:-1 [min]            | don't restart (block) time to re-set the switch | 
 
+## Section [SURPLUS_SWITCH]
 
+To switch power consumer if surplus power is available
+
+|key                          | default value           | description   |
+|-----------------------------|-------------------------|-------------- |
+| SwitchDelaySec               |def:40 [s]              |[s] Delay between each switch action (on/off) to ensure proper grid power response for new decisions.|
+|Id/X/switch/Y/Name            | | name to debug each switch will be switched on if surplus reached the threshold |
+|Id/X/switch/Y/Topic           |                              | switch topic payload: [0,1] |
+|Id/X/switch/Y/SurplusMinP     | def:0[W] disabled            | Min. power to switch on the switch |
+|Id/X/switch/Y/MinDurationMin  |def:5[min]                    | Min. time the switch is on |
+|Id/X/switch/Y/MaxDurationMax  |(def:-1 [min] endless)        | Max. time the switch is on | 
+	
 
 
 

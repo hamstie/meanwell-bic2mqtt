@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-APP_VER = "0.92"
+APP_VER = "1.01"
 APP_NAME = "bic2mqtt"
 
 """
- fst:05.04.2024 lst:30.07.2024
+ fst:05.04.2024 lst:05.07.2024
  Meanwell BIC2200-XXCAN to mqtt bridge
+ V1.01 +surplus-switch object, 
+ 		power-gap handling, reduce bic write commands
  V0.92 -round min/max pid charge power to 10
  V0.91 +Charge control for the winter
  V0.81 released-surplus, used the grid power as power value
@@ -48,7 +50,7 @@ import json
 import configparser
 from cavg import CMAvg
 
-import sys
+import sys,re
 
 # later we modify this, using a config file
 MQTT_BROKER_ADR = "127.0.0.1" # mqtt broker ip-address
@@ -64,6 +66,12 @@ mqttc = None
 ini = None # Ini-Config parser
 app = None # main application
 lg = None # logger
+
+
+# print with CR without LF and always 120 char long, willed with spaces
+def misc_print_cr(cr_str : str):
+	cr_str = '{:120}'.format(cr_str)
+	print(cr_str,end='\r')
 
 # simple config/ini file parser
 class CIni:
@@ -162,6 +170,176 @@ class CBattery():
 		return 0
 
 
+""" surplus switch object 
+	- add switch elements to control power consumption devices
+"""
+class CSurplus():
+
+	class Switch:
+		def __init__(self,id:int , sp):
+			self.id = id
+			self.topic = ""
+			self.dn = ""
+			self.cfg_dur_min_sec = 0
+			self.dur_running_sec = -1 # running duration [s]
+			self.cfg_block_sec = -1 #  block time
+			self.tmo_block_sec = -1 # block re-set of switch [s] if dur_max_sec was set
+			self.cfg_dur_max_sec = 0
+			self.tmo_dur_max_sec = -1
+			self.cfg_surplus_pow_min = 0
+			self.state = 0
+			self.bo_try_stop = False
+			self.sp = sp # CSurplus object
+
+		# return True if a switch action was done 
+		def poll(self,surpower : int,timeslice_sec : int):
+
+			if self.state >0:
+				self.dur_running_sec += timeslice_sec
+
+			if self.tmo_block_sec >=0:
+				self.tmo_block_sec -= timeslice_sec		
+
+			if self.sp.switch_delay_active() is True:
+				return
+
+			if  self.state==0:
+				if (surpower >= self.cfg_surplus_pow_min) and (self.tmo_block_sec <0):
+					self.set_state(1)
+					return True
+			else: # state 1
+				if (self.cfg_dur_max_sec >=0) and (self.dur_running_sec > self.cfg_dur_max_sec):
+					self.set_state(0)
+					return True
+				else:
+					if (surpower ==0):
+						if (self.dur_running_sec > self.cfg_dur_min_sec):
+							self.set_state(0)
+							return True
+			
+			return False				
+
+		
+		def reset(self):
+			self.dur_running_sec = -1
+			# not allow to reset here self.dur_block_sec = -1
+			self.bo_try_stop = False
+
+		def set_state(self,new_state):
+			if self.state != new_state:
+				self.state=new_state
+				lg.info('SP set state:' + str(self))
+				if self.state==0: # 1->0
+					self.reset()
+				else: # 0->1
+					self.sp.switch_delay_start()
+					self.dur_running_sec = 0
+					if self.cfg_block_sec >0:
+						self.tmo_block_sec = self.cfg_block_sec
+				# @todo set topic
+				global mqttc
+				mqttc.publish(self.topic,str(self.state),0,True) #  retained !!  not retained but cycled ?
+
+		def __str__(self):
+			return "sw id:{} dn:{} state:{} min/max:{}/{}[min] dur:{}[s] btmo:{}[s]".format(self.id,self.dn,self.state,(self.cfg_dur_min_sec / 60),(self.cfg_dur_max_sec / 60),self.dur_running_sec,self.tmo_block_sec)
+			#return "sw id:{} dn:{} pMin:{}[W] top:{} min/max:{}/{}[min] dur:{}".format(self.id,self.dn,self.cfg_surplus_pow_min,self.topic,self.cfg_dur_min,self.cfg_dur_max,self.dur_running_sec)
+
+	def __init__(self,dev_id):
+		self.lst = [] # list off switch objects prio based
+		self.cfg_switch_delay_sec = 40 # list off switch objects
+		self.tmo_switch_delay = -1 # timout for switch delay after each start/stop	 
+		self.dev_id = dev_id # device-id of the charger
+		self.cnt_sec = 0
+		self.surpower_last = 0
+
+
+	"""
+	@param dbkey-int [SURPLUS_SWITCH]SwitchDelaySec  def:40[s] Delay between each switch action (on/off) to ensure proper grid power response for new decisions.
+	@param dbkey-str [SURPLUS_SWITCH]Id/X/switch/Y/Name " name to debug each switch will be switched on if surplus reached the threshold
+	@param dbkey-str [SURPLUS_SWITCH]Id/X/switch/Y/Topic switch topic payload: [0,1]
+	@param dbkey-int [SURPLUS_SWITCH]Id/X/switch/Y/SurplusMinP def:0[W] (0[W] is disabled) Min. power to switch on the switch
+	@param dbkey-int [SURPLUS_SWITCH]Id/X/switch/Y/MinDurationMin def:5[min]
+	@param dbkey-int [SURPLUS_SWITCH]Id/X/switch/Y/MaxDurationMax (def:-1 [min] endless)  Max. time the switch is on
+	@param dbkey-int [SURPLUS_SWITCH]Id/X/switch/Y/BlockRestart (def:-1 [min] don't clock restart)  block restart time to re-set 
+	"""
+	def cfg(self,ini,reload = False):
+		lg.info('SUR cfg id:' + str(self.dev_id))
+		self.lst.clear()
+
+		def kpfx(str_tail : str):
+			return "Id/{}/{}".format(self.dev_id,str_tail)
+
+		def kpfx_switch(switch_id:int ,str_tail : str):
+			return "Id/{}/switch/{}/{}".format(self.dev_id,switch_id,str_tail)
+
+		self.cfg_switch_delay_sec = ini.get_int('SURPLUS_SWITCH',kpfx("SwitchDelaySec"),40)
+		d = ini.get_sec_keys('SURPLUS_SWITCH')
+		for k,v in d.items():
+			try:
+				#print('k:' + str(k))
+				if (k.find('/switch/'.lower())>=0) and (k.find('SurplusMinP'.lower())>=0):
+					#print('k:' + str(k))
+					ltok = k.split('/')
+					if len(ltok) >= 4:
+						id_switch = int(ltok[3])
+						sur_pow= ini.get_int('SURPLUS_SWITCH',kpfx_switch(id_switch,"SurplusMinP"),0)
+						if sur_pow >0:
+							sw = CSurplus.Switch(id_switch,self)
+							sw.cfg_surplus_pow_min = sur_pow
+							sw.topic = ini.get_str('SURPLUS_SWITCH',kpfx_switch(id_switch,"Topic"),"")
+							sw.dn = ini.get_str('SURPLUS_SWITCH',kpfx_switch(id_switch,"Name"),"")
+							sw.cfg_dur_min_sec = ini.get_int('SURPLUS_SWITCH',kpfx_switch(id_switch,"MinDurationMin"),5) * 60
+							sw.cfg_dur_max_sec = ini.get_int('SURPLUS_SWITCH',kpfx_switch(id_switch,"MaxDurationMax"),-1) * 60
+							sw.cfg_block_sec = ini.get_int('SURPLUS_SWITCH',kpfx_switch(id_switch,"BlockRestart"),-1) * 60
+							self.lst.append(sw)
+							lg.info('SUR cfg +' + str(sw))
+
+			except Exception as err:
+				lg.error("cfg surplus key:{} err:{}".format(k,err))
+
+		return
+
+	def switch_delay_start(self):
+		self.tmo_switch_delay = self.cfg_switch_delay_sec
+
+	def switch_delay_active(self):
+		if self.tmo_switch_delay >=0:
+			return True
+		return False
+
+
+	def dump(self):
+		print("dump surplus switches pSur:{}[W] sw-delay:{}[s]".format(self.surpower_last, self.tmo_switch_delay))
+		for sw in self.lst:
+			print(" -" + str(sw))
+
+	def poll(self,surpower : int,timeslice_sec : int):
+		self.surpower_last = surpower
+		self.cnt_sec += timeslice_sec
+		if self.tmo_switch_delay >=0:
+			self.tmo_switch_delay -= 1
+			# return not because of the timing stuff
+
+		"""
+		#@fixme testcode @ startup
+		if self.cnt_sec > 30 and self.cnt_sec < 120:
+			surpower = 500
+		elif self.cnt_sec > 180 and self.cnt_sec < 320:
+			surpower = 600
+		else:
+			surpower = 0
+		"""
+
+		# @todo for surplus==0 : stop switches in revers order
+		for sw in self.lst:
+			if sw.poll(surpower,timeslice_sec) is True:
+				lg.info('SP:' + str(sw))
+
+		if ((self.cnt_sec % 60) == 0) and (len(self.lst) >0)  and  (surpower > 0): 
+			self.dump()
+		return
+
+
 """
 BIC Inverter Device Object:
  - config parameter
@@ -177,6 +355,9 @@ class CBicDevBase():
 
 	s_onl_mode = ['offline','init','idle','running']
 
+
+	DEF_SATURATION_POW = 80 # gap between set power and real bat-power charging/discharging
+
 	def __init__(self,id : int,type : str):
 		self.id = id	# device-id from ini
 		if type is None or len(type)==0:
@@ -189,6 +370,7 @@ class CBicDevBase():
 		self.system_voltage = 0 # needed for power calculation
 		self.top_inv = "" # MQTT_T_APP + '/inv/' + str(self.id)
 		self.cc = None	# charge control
+		self.sp = CSurplus(self.id) # surplus switch
 		self.bat = self.bat = CBattery(self.id) # battery
 
 		self.info = {}
@@ -203,7 +385,7 @@ class CBicDevBase():
 		self.state['dcBatV'] = 0 # bat voltage DV [V]
 		self.state['capBatPc'] = 0 # bat capacity [%]
 
-		self.avg_pow_charge = CMAvg(24*3600*1000) #average calculation fr charged [kWh]
+		self.avg_pow_charge = CMAvg(24*3600*1000) #average calculation of charged [kWh]
 		self.avg_pow_discharge = CMAvg(24*3600*1000) #average calculation of dischrged [kWh]
 		self.avg_pow_surplus = CMAvg(24*3600*1000) #average calculation of purplus power [kWh]
 
@@ -218,6 +400,7 @@ class CBicDevBase():
 		self.charge_pow_set = 0 # last setter of charge value from mqtt
 		#self.charge_pow_surplus = 0 # [W] surplus calculation
 		self.charge_saturation = 0 # [W] level of chagre saturation, gap between set power and charge power, always positve
+		self.pow_surplus = 0 # [W] surplus power
 		self.pow_last_grid_value = 0 # [W] last grid power value, only for statistics
 
 		self.fault = {} # dic of all fault-states
@@ -241,7 +424,8 @@ class CBicDevBase():
 		self.tmo_charge_ms =  0 #timeslice update state
 		self.cfg_tmo_charge_ms = 2000 #timeslice update charge values
 
-
+	def avg_get_min(minute : int):
+		return self.avg_pow.avg_get(minute*60*1000,-1)
 
 	# read from bic some common stuff
 	# 	@topic-pub <main-app>/inv/<id>/info
@@ -315,7 +499,6 @@ class CBicDevBase():
 				self.charge['chargeA'] = round(amp,1)  	# bat [A] discharge[-] charge[+] ?
 				pow_w = round(amp * volt)
 				self.charge['chargeP'] = pow_w  # bat [VA] discharge[-] charge[+]
-				_pow_surplus = 0
 
 				cdir = self.bic.BIC_chargemode_read()
 				if cdir == CBic.e_charge_mode_charge:
@@ -323,11 +506,13 @@ class CBicDevBase():
 					self.avg_pow_charge.push_val(pow_w)
 					self.avg_pow_discharge.push_val(0)
 					self.charge_saturation = self.charge_pow_set - pow_w
-					if (self.charge_saturation >=80) and (self.pow_last_grid_value <0):
-						_pow_surplus = abs(self.pow_last_grid_value)
-						self.avg_pow_surplus.push_val(_pow_surplus)
+					if (self.charge_saturation >= CBicDevBase.DEF_SATURATION_POW) and (self.pow_last_grid_value <0):
+						self.pow_surplus = abs(self.pow_last_grid_value)
 					else:
-						self.avg_pow_surplus.push_val(0)
+						self.pow_surplus = 0
+					self.avg_pow_surplus.push_val(self.pow_surplus)
+
+
 					# W/ms -> kW/h
 					self.charge['chargedKWh'] = round(self.avg_pow_charge.sum_get(0,0)/(1E6*3600),1)
 					self.charge['surplusKWh'] = round(self.avg_pow_surplus.sum_get(0,0)/(1E6*3600),1)
@@ -339,7 +524,7 @@ class CBicDevBase():
 					self.charge['dischargedKWh'] = round(self.avg_pow_discharge.sum_get(0,0) / (1E6*3600),1)
 					amp = round((self.bic.discharge_current(CBic.e_cmd_read) / 100) * (-1),2)
 
-				self.charge['surplusP'] = _pow_surplus
+				self.charge['surplusP'] = self.pow_surplus
 				self.charge['chargeSetA'] = amp # [A] configured and readed value [A]
 			except Exception as err:
 				lg.error("dev update can't read value:" + str(err))
@@ -378,6 +563,7 @@ class CBicDevBase():
 		self.top_inv = MQTT_T_APP + '/inv/' + str(self.id)
 
 		self.bat.cfg(ini,reload)
+		self.sp.cfg(ini,reload)
 
 		lg.info("init " + str(self))
 		#dischargedelay = int(config.get('Settings', 'DischargeDelay'))
@@ -440,6 +626,8 @@ class CBicDevBase():
 				jpl = json.dumps(self.bic.d_fault, sort_keys=False, indent=4)
 				global mqttc
 				mqttc.publish(MQTT_T_APP + '/inv/' + str(self.id) +  '/fault',jpl,0,True) # retained
+
+		self.sp.poll(self.pow_surplus,1)
 
 		if App.ts_1min == 1:
 			fault_check_update(True)
@@ -523,6 +711,7 @@ class CBicDevBase():
 		if self.charge_pow_set == val_pow:
 			return
 		self.charge_pow_set = val_pow
+
 		v = self.state['dcBatV']
 		if v < 20:
 			v = 24 # set before read from bic
@@ -688,6 +877,7 @@ class CChargeCtrlBase():
 
 	DEF_GRID_TMO_SEC = 320 # seconds to switch off bic-dev if we get no new gid-power values
 	DEF_BLOCK_TIME_DISCHARGE = 60 # [s]
+	DEF_MAX_POW_GAP = 100 # [W] max power gap for saturation detection
 
 	def __init__(self,dev_bic : CBicDevBase):
 		self.enabled = False # enabled
@@ -697,16 +887,20 @@ class CChargeCtrlBase():
 		self.tmo_grid_sec = CChargeCtrlBase.DEF_GRID_TMO_SEC # grid tmo timer
 		self.grid_pow = 0 # last grid power value
 		self.grid_pow_tmo = False # no new values from smart-meter
-		self.calc_pow = 0 # calculated power to set
+		self.calc_pow_last = 0 # calculated power to set
 
 		self.ts_1000ms=0 # timeslice 1000ms [ms]
 		self.ts_calc_sec=0 # timeslice for each calculation [s]
 		self.ts_calc_cfg=12 # timeslice cfg
 		self.ts_1min=0 # timeslive 1min [s]
 
-		self.avg_pow = CMAvg(3600*1000) #average calculation , store values for on hour
+		self.avg_pow_grid = CMAvg(3600*1000) #average calculation , store values for on hour
 		self.pow_grid_offset = 0 # [W] offset power for the calculation, move the zero point of power balance
+		self.charge_pow_last = 0 # [W] last bat charged power
 		self.charge_pow_tol = 10 # [W] don't set new charge value if the running one is nearby
+		self.cfg_gap_pow_range = CChargeCtrlBase.DEF_MAX_POW_GAP # [W] >0 enable gap power handling
+		self.gap_pow = 0 # [W] gap between set power and bat charging/discharging (happend for saturation/empty bat)
+		self.gap_pow_cnt = 0 # DEF_MAX_POW_GAP was reached increase counter else reset counter
 		# will be set later with the charge profile
 		self.charge_pow_max = 0 # [W] max charge power power value
 		self.discharge_pow_max = 0 # [W] min discharge power value, normaly a negative value
@@ -801,9 +995,18 @@ class CChargeCtrlBase():
 
 	# set the calculated power
 	def calc_power_set(self,val_pow : int):
-		self.calc_pow = val_pow
+		self.calc_pow_last = val_pow
+		self.charge_pow_last = int(self.dev_bic.charge['chargeP'])
 		if val_pow >0:
 			self.t_last_charge = datetime.now()
+
+		if 	self.cfg_gap_pow_range > 0:
+			self.gap_pow = self.calc_pow_last - self.charge_pow_last # charge power of the bat from real voltage and current of the bic
+			if abs(self.gap_pow) >= self.cfg_gap_pow_range:
+				self.gap_pow_cnt += 1
+			elif (self.gap_pow_cnt > 0) and (abs(self.gap_pow) < (self.cfg_gap_pow_range * 0.8)):
+				lg.info('CC gap:{}[W] cnt:{} reset pow:{}[W]'.format(self.gap_pow,self.gap_pow_cnt,val_pow))
+				self.gap_pow_cnt = 0
 
 
 	# calculate new power value to set, overwrite it !
@@ -816,7 +1019,9 @@ class CChargeCtrlBase():
 	def reset(self):
 		lg.info('CC charge control reset')
 		self.dev_bic.charge_set_idle() # reset to lowest charge value
-		self.calc_pow = 0
+		self.calc_pow_last = 0
+		self.gap_pow_cnt = 0
+		self.gap_pow = 0
 
 	def enable(self,enable :bool):
 		self.enabled=enable
@@ -824,6 +1029,9 @@ class CChargeCtrlBase():
 		self.reset()
 
 	def poll(self,timeslice_ms):
+
+		def gridavg(minute : int):
+			return self.avg_pow_grid.avg_get(minute*60*1000,-1)
 
 		self.ts_1000ms += timeslice_ms
 		if self.ts_1000ms >= 1000:
@@ -843,6 +1051,13 @@ class CChargeCtrlBase():
 				self.tmo_grid_sec-=1
 				if self.tmo_grid_sec < 0:
 					self.on_cb_grid_power_tmo()
+
+
+			if self.ts_1min == 1:
+				lg.info('CC pGrid:{}[W] pGridAvg:1m:{} 2m:{} 5m:{} 1h:{} offs:{}[W]'.format(self.grid_pow,gridavg(1),gridavg(2),gridavg(5),gridavg(60),self.pow_grid_offset))
+			elif self.ts_1min == 2:
+				lg.info('CC pGrid:{}[W] pBat:{}[W] pCalcLast:{}[W] pGap:{}[W]'.format(self.grid_pow,self.charge_pow_last,self.calc_pow_last,self.gap_pow))
+
 		return
 
 
@@ -904,6 +1119,7 @@ class CChargeCtrlWinter(CChargeCtrlBase):
 		self.cfg_min_cap_pc = 30 # min. bat capacity [%], < goto state charge
 		self.cfg_max_cap_pc = 50 # max. allow  bat capacity [%], > stop charging max-cap + 20%: discharge
 		self.cfg_const_pow = 200 # charge discharge power [W]
+		self.cfg_gap_pow_range = 0 # disable gap-power detection
 
 	""" Charge Control Winter: cfg
 	    @param dbkey-int [CHARGE_CONTROL]Id/X/Winter/ChargeP def:200W [VA]
@@ -1058,15 +1274,13 @@ class CChargeCtrlSimple(CChargeCtrlBase):
 		- haus/kel/pgrid/pnow
 	"""
 	def on_cb_grid_power(self,grid_pow):
-		def avg2min(minute : int):
-			return self.avg_pow.avg_get(minute*60*1000,-1)
 
 		super().on_cb_grid_power(grid_pow)
 
 		#lg.info('CC new grid power value {} [W]'.format(self.grid_pow))
-		self.avg_pow.push_val(grid_pow)
+		self.avg_pow_grid.push_val(grid_pow)
 
-		lg.info('CC pGrid:{}[W] pGridAvg:1m:{} 2m:{} 5m:{} 1h:{} offs:{}[W]'.format(grid_pow,avg2min(1),avg2min(2),avg2min(5),avg2min(60),self.pow_grid_offset))
+		#lg.info('CC pGrid:{}[W] pGridAvg:1m:{} 2m:{} 5m:{} 1h:{} offs:{}[W]'.format(grid_pow,self.avg_get_min(1),self.avg_get_min(2),self.avg_get_min(5),self.avg_get_min(60),self.pow_grid_offset))
 		if self.enabled is True:
 			self.calc_power(grid_pow)
 
@@ -1083,7 +1297,7 @@ class CChargeCtrlSimple(CChargeCtrlBase):
 			return
 
 		charge_pow = self.dev_bic.charge['chargeP']
-		grid_pow = self.avg_pow.avg_get(1*1000*60,-1) + self.pow_grid_offset # used avg grid power with offset
+		grid_pow = self.avg_pow_grid.avg_get(1*1000*60,-1) + self.pow_grid_offset # used avg grid power with offset
 
 
 		new_calc_pow = math_round_up(charge_pow  + (grid_pow * self.cfg_loop_gain * (-1)))
@@ -1285,15 +1499,12 @@ class CChargeCtrlPID(CChargeCtrlBase):
 	"""
 	def on_cb_grid_power(self,grid_pow):
 
-		def avg2min(minute : int):
-			return self.avg_pow.avg_get(minute*60*1000,-1)
-
 		super().on_cb_grid_power(grid_pow)
 
 		#lg.info('CC new grid power value {} [W]'.format(self.grid_pow))
 		#grid_pow=self.sm_zero_tol(grid_pow)
-		self.avg_pow.push_val(grid_pow)
-		lg.info('CC pGrid:{}[W] pGridAvg:1m:{} 2m:{} 5m:{} 1h:{} offs:{}[W]'.format(grid_pow,avg2min(1),avg2min(2),avg2min(5),avg2min(60),self.pow_grid_offset))
+		self.avg_pow_grid.push_val(grid_pow)
+		#lg.info('CC pGrid:{}[W] pGridAvg:1m:{} 2m:{} 5m:{} 1h:{} offs:{}[W]'.format(grid_pow,self.avg_get_min(1),self.avg_get_min(2),self.avg_get_min(5),self.avg_get_min(60),self.pow_grid_offset))
 		#grid_pow=self.sm_zero_tol(grid_pow)
 		if self.enabled is True:
 			self.calc_power(grid_pow)
@@ -1332,38 +1543,53 @@ class CChargeCtrlPID(CChargeCtrlBase):
 
 	"""
 	def calc_power(self,grid_pow):
-
+		"""
 		def round_to_twenty(number):
 			return round(number / 20) * 20
+		"""
 
 		is_running = super().calc_power(grid_pow)
 		if is_running is False:
 			return
 
-		charge_pow = self.dev_bic.charge['chargeP'] # charge power of the bat from real voltage and current of the bic
 		tol_pow=int(grid_pow - self.pow_grid_offset)
 
 		if self.grid_power_dir_changed(grid_pow) is True:
 			lg.critical("CC grid power changed direction:pid reset")
 			self.reset()
 			new_calc_pow = 0
-			charge_pow = 0
 		elif abs(tol_pow) > self.charge_pow_tol:
-			new_calc_pow = self.calc_pow + self.pid.step(grid_pow)
-			#new_calc_pow = charge_pow + self.pid.step(grid_pow)
+			new_calc_pow = self.calc_pow_last + self.pid.step(grid_pow)
 		else:
-			lg.debug('CC pid stoped tol:{}[W]'.format(tol_pow))
+			#lg.debug('CC pid stoped tol:{}[W]'.format(tol_pow))
+			#print('CC pid stoped tol:{}[W]'.format(tol_pow), end='\r')
+			misc_print_cr('CC pid stoped tol:{}[W]'.format(tol_pow))
 			self.pid.reset()
+			self.calc_power_set(self.calc_pow_last)
 			return
 
-		charge_pow_r20 = round_to_twenty(charge_pow) # roundto10
 
-		# prevent, that the set values running away from the real bat-chargeing level, the charge power is limited
+
+		""" V1.0 try to use gap power calculation for skipping set power
+		 charge_pow_r20 = round_to_twenty(charge_pow) # roundto10
+		 prevent, that the set values running away from the real bat-chargeing level, the charge power is limited
 		new_calc_pow=CChargeCtrlBase.clamp(round(new_calc_pow,-1),charge_pow_r20-100,charge_pow_r20+100)
-		#use also the configured min/max one top
-		new_calc_pow=CChargeCtrlBase.clamp(new_calc_pow,self.discharge_pow_max, self.charge_pow_max)
+		"""
+
+		new_calc_pow=CChargeCtrlBase.clamp(round(new_calc_pow,-1),self.discharge_pow_max, self.charge_pow_max) # configured min/max one top
 
 		# check and skip short discharge burst e.g. use the grid power for the tee-kettle
+		_gap_power_high = False
+		if self.gap_pow_cnt >10:
+			#lg.debug('CC gap:{}[W] cnt:{} skip set power val:{}[W]'.format(self.gap_pow,self.gap_pow_cnt,new_calc_pow))
+			new_calc_pow=round(CChargeCtrlBase.clamp(new_calc_pow,new_calc_pow - (self.cfg_gap_pow_range * 1.2),new_calc_pow + (self.cfg_gap_pow_range * 1.2)),-1)
+			if (self.gap_pow_cnt % 60)==0:
+				_gap_power_high = False
+			else:
+				_gap_power_high = True
+				#print('CC gap:{}[W] cnt:{} skip set power val:{}[W]'.format(self.gap_pow,self.gap_pow_cnt,new_calc_pow), end='\r')
+				misc_print_cr('CC gap:{}[W] cnt:{} skip set power val:{}[W]'.format(self.gap_pow,self.gap_pow_cnt,new_calc_pow))
+
 		if new_calc_pow < 0:
 			if self.discharge_blocking_state() is True:
 				new_calc_pow = 0
@@ -1371,22 +1597,25 @@ class CChargeCtrlPID(CChargeCtrlBase):
 			elif self.discharge_pow_max >=0:
 				lg.debug('CC no-discharge hour profile')
 
-		if abs(tol_pow) > self.charge_pow_tol:
-			lg.info('CC set new value: pGrid:{}[W] pBat:{}[W] pCalcNew:{}[W] pOfs:{}[W]'.format(grid_pow,charge_pow,new_calc_pow,self.pow_grid_offset))
+		if (abs(tol_pow) > self.charge_pow_tol) and (_gap_power_high is False):
+			lg.info('CC set new value: pGrid:{}[W] pCalcNew:{}[W] pOfs:{}[W]'.format(grid_pow,new_calc_pow,self.pow_grid_offset))
 			topic = self.dev_bic.top_inv + '/charge/set'
 			dpl = {"var":"chargeP"}
 			dpl['val'] = int(new_calc_pow)
 			#print("top:{} pl:{}".format(topic,str(dpl)))
 			global mqttc
 			mqttc.publish(topic,json.dumps(dpl, sort_keys=False, indent=0),0,False) # no retain
-			self.calc_power_set(new_calc_pow)
+			#self.calc_power_set(new_calc_pow)
 		else:
-			lg.info('CC const value: pGrid:{}[W] pBat:{}[W] pCalcLast:{}[W] pOfs:{}[W]'.format(grid_pow,charge_pow,new_calc_pow,self.pow_grid_offset))
+			pass
+			#lg.info('CC const value: pGrid:{}[W] pCalcLast:{}[W] pOfs:{}[W] pGap:{}[W]'.format(grid_pow,new_calc_pow,self.pow_grid_offset,self.gap_pow))
+
 		self.calc_power_set(new_calc_pow)
 
 		return
 
 	def poll(self,timeslice_ms):
+
 		super().poll(timeslice_ms)
 		if self.ts_1min == 1:
 			if CCCProfile.hour_changed() is True:
@@ -1396,7 +1625,10 @@ class CChargeCtrlPID(CChargeCtrlBase):
 				self.charge_pow_max = cprof.pow_charge_max
 				self.pow_grid_offset = cprof.pow_grid_offset
 				self.pid.cfg_offset = cprof.pow_grid_offset
+		
+		return
 
+			
 	def reset(self):
 		super().reset()
 		self.pid.reset()
