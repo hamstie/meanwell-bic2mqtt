@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-APP_VER = "1.01"
+APP_VER = "1.02"
 APP_NAME = "bic2mqtt"
 
 """
- fst:05.04.2024 lst:05.07.2024
+ fst:05.04.2024 lst:09.07.2024
  Meanwell BIC2200-XXCAN to mqtt bridge
+ V1.02 -improvments: better power direction changed detection
  V1.01 +surplus-switch object, 
  		power-gap handling, reduce bic write commands
  V0.92 -round min/max pid charge power to 10
@@ -1530,7 +1531,10 @@ class CChargeCtrlPID(CChargeCtrlBase):
 		@return True if the direction has changed at an high power-value
 	"""
 	def grid_power_dir_changed(self,grid_pow_now : int):
-		if abs(grid_pow_now) >= 100 and self.grid_pow_last !=0:
+		if  (abs(self.grid_pow_last) <= (self.charge_pow_tol *2)) or (self.grid_pow_last ==0):
+			return False
+		
+		if  abs(grid_pow_now) >= 100:
 			if CChargeCtrlBase.sign(grid_pow_now) != CChargeCtrlBase.sign(self.grid_pow_last):
 				return True
 		return False
