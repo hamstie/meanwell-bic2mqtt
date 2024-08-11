@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-APP_VER = "1.02"
+APP_VER = "1.03"
 APP_NAME = "bic2mqtt"
 
 """
- fst:05.04.2024 lst:09.07.2024
+ fst:05.04.2024 lst:11.09.2024
  Meanwell BIC2200-XXCAN to mqtt bridge
+ V1.03 -pow in tollerance counter for stats
  V1.02 -improvments: better power direction changed detection
- V1.01 +surplus-switch object, 
+ V1.01 +surplus-switch object,
  		power-gap handling, reduce bic write commands
  V0.92 -round min/max pid charge power to 10
  V0.91 +Charge control for the winter
@@ -171,7 +172,7 @@ class CBattery():
 		return 0
 
 
-""" surplus switch object 
+""" surplus switch object
 	- add switch elements to control power consumption devices
 """
 class CSurplus():
@@ -192,14 +193,14 @@ class CSurplus():
 			self.bo_try_stop = False
 			self.sp = sp # CSurplus object
 
-		# return True if a switch action was done 
+		# return True if a switch action was done
 		def poll(self,surpower : int,timeslice_sec : int):
 
 			if self.state >0:
 				self.dur_running_sec += timeslice_sec
 
 			if self.tmo_block_sec >=0:
-				self.tmo_block_sec -= timeslice_sec		
+				self.tmo_block_sec -= timeslice_sec
 
 			if self.sp.switch_delay_active() is True:
 				return
@@ -217,10 +218,10 @@ class CSurplus():
 						if (self.dur_running_sec > self.cfg_dur_min_sec):
 							self.set_state(0)
 							return True
-			
-			return False				
 
-		
+			return False
+
+
 		def reset(self):
 			self.dur_running_sec = -1
 			# not allow to reset here self.dur_block_sec = -1
@@ -248,7 +249,7 @@ class CSurplus():
 	def __init__(self,dev_id):
 		self.lst = [] # list off switch objects prio based
 		self.cfg_switch_delay_sec = 40 # list off switch objects
-		self.tmo_switch_delay = -1 # timout for switch delay after each start/stop	 
+		self.tmo_switch_delay = -1 # timout for switch delay after each start/stop
 		self.dev_id = dev_id # device-id of the charger
 		self.cnt_sec = 0
 		self.surpower_last = 0
@@ -261,7 +262,7 @@ class CSurplus():
 	@param dbkey-int [SURPLUS_SWITCH]Id/X/switch/Y/SurplusMinP def:0[W] (0[W] is disabled) Min. power to switch on the switch
 	@param dbkey-int [SURPLUS_SWITCH]Id/X/switch/Y/MinDurationMin def:5[min]
 	@param dbkey-int [SURPLUS_SWITCH]Id/X/switch/Y/MaxDurationMax (def:-1 [min] endless)  Max. time the switch is on
-	@param dbkey-int [SURPLUS_SWITCH]Id/X/switch/Y/BlockRestart (def:-1 [min] don't clock restart)  block restart time to re-set 
+	@param dbkey-int [SURPLUS_SWITCH]Id/X/switch/Y/BlockRestart (def:-1 [min] don't clock restart)  block restart time to re-set
 	"""
 	def cfg(self,ini,reload = False):
 		lg.info('SUR cfg id:' + str(self.dev_id))
@@ -336,7 +337,7 @@ class CSurplus():
 			if sw.poll(surpower,timeslice_sec) is True:
 				lg.info('SP:' + str(sw))
 
-		if ((self.cnt_sec % 60) == 0) and (len(self.lst) >0)  and  (surpower > 0): 
+		if ((self.cnt_sec % 60) == 0) and (len(self.lst) >0)  and  (surpower > 0):
 			self.dump()
 		return
 
@@ -899,6 +900,7 @@ class CChargeCtrlBase():
 		self.pow_grid_offset = 0 # [W] offset power for the calculation, move the zero point of power balance
 		self.charge_pow_last = 0 # [W] last bat charged power
 		self.charge_pow_tol = 10 # [W] don't set new charge value if the running one is nearby
+		self.pow_in_tol_cnt = 0 # [W] power in tolerance counter
 		self.cfg_gap_pow_range = CChargeCtrlBase.DEF_MAX_POW_GAP # [W] >0 enable gap power handling
 		self.gap_pow = 0 # [W] gap between set power and bat charging/discharging (happend for saturation/empty bat)
 		self.gap_pow_cnt = 0 # DEF_MAX_POW_GAP was reached increase counter else reset counter
@@ -1014,6 +1016,13 @@ class CChargeCtrlBase():
 	def calc_power(self,grid_pow):
 		if self.dev_bic.onl_mode <= CBicDevBase.e_onl_mode_idle:
 			return False
+		else:
+			tol_pow=int(grid_pow - self.pow_grid_offset)
+			if abs(tol_pow) > self.charge_pow_tol:
+				self.pow_in_tol_cnt = 0
+			else:
+				self.pow_in_tol_cnt += 1
+
 
 		return True
 
@@ -1023,6 +1032,7 @@ class CChargeCtrlBase():
 		self.calc_pow_last = 0
 		self.gap_pow_cnt = 0
 		self.gap_pow = 0
+		self.pow_in_tol_cnt = 0
 
 	def enable(self,enable :bool):
 		self.enabled=enable
@@ -1501,30 +1511,13 @@ class CChargeCtrlPID(CChargeCtrlBase):
 	def on_cb_grid_power(self,grid_pow):
 
 		super().on_cb_grid_power(grid_pow)
-
-		#lg.info('CC new grid power value {} [W]'.format(self.grid_pow))
-		#grid_pow=self.sm_zero_tol(grid_pow)
 		self.avg_pow_grid.push_val(grid_pow)
 		#lg.info('CC pGrid:{}[W] pGridAvg:1m:{} 2m:{} 5m:{} 1h:{} offs:{}[W]'.format(grid_pow,self.avg_get_min(1),self.avg_get_min(2),self.avg_get_min(5),self.avg_get_min(60),self.pow_grid_offset))
-		#grid_pow=self.sm_zero_tol(grid_pow)
+
 		if self.enabled is True:
 			self.calc_power(grid_pow)
 		self.grid_pow_last = grid_pow
 
-
-	""" @audit-ok but not used try to fix the offset problem of my smart-meter at point zero
-		- this point is very unstable (the sign calculation)
-		- try to fix the pid-regulator between the offset value:
-		-30 -20 0 0 0 +20 30
-		-       ^ ^ ^   offset:+-20 set all values between offset to zero
-		@return modifyed grid power value
-	"""
-	def sm_zero_tol(self,grid_pow):
-		sm_offset=10
-		if (grid_pow >= (sm_offset * (-1))) and (grid_pow <= sm_offset):
-			return 0
-		else:
-			return grid_pow
 
 	""" reset the pid regulator if the sign of the grid is
 		changing and the power value is high
@@ -1533,7 +1526,7 @@ class CChargeCtrlPID(CChargeCtrlBase):
 	def grid_power_dir_changed(self,grid_pow_now : int):
 		if  (abs(self.grid_pow_last) <= (self.charge_pow_tol *2)) or (self.grid_pow_last ==0):
 			return False
-		
+
 		if  abs(grid_pow_now) >= 100:
 			if CChargeCtrlBase.sign(grid_pow_now) != CChargeCtrlBase.sign(self.grid_pow_last):
 				return True
@@ -1565,21 +1558,21 @@ class CChargeCtrlPID(CChargeCtrlBase):
 		elif abs(tol_pow) > self.charge_pow_tol:
 			new_calc_pow = self.calc_pow_last + self.pid.step(grid_pow)
 		else:
-			#lg.debug('CC pid stoped tol:{}[W]'.format(tol_pow))
-			#print('CC pid stoped tol:{}[W]'.format(tol_pow), end='\r')
-			misc_print_cr('CC pid stoped tol:{}[W]'.format(tol_pow))
-			self.pid.reset()
-			self.calc_power_set(self.calc_pow_last)
+			# finetuning 
+			if (tol_pow !=0) and (self.pow_in_tol_cnt >0) and ((self.pow_in_tol_cnt % 30) == 0):
+				new_calc_pow = self.calc_pow_last + (tol_pow * (-1))
+				misc_print_cr('CC finetuning tol:{}[W] cnt:{}'.format(tol_pow,self.pow_in_tol_cnt))
+			else:
+				# pow under tolerance, stop pid
+				misc_print_cr('CC pid stoped tol:{}[W] cnt:{}'.format(tol_pow,self.pow_in_tol_cnt))
+				self.pid.reset()
+				self.calc_power_set(self.calc_pow_last)
 			return
 
 
-
 		""" V1.0 try to use gap power calculation for skipping set power
-		 charge_pow_r20 = round_to_twenty(charge_pow) # roundto10
 		 prevent, that the set values running away from the real bat-chargeing level, the charge power is limited
-		new_calc_pow=CChargeCtrlBase.clamp(round(new_calc_pow,-1),charge_pow_r20-100,charge_pow_r20+100)
 		"""
-
 		new_calc_pow=CChargeCtrlBase.clamp(round(new_calc_pow,-1),self.discharge_pow_max, self.charge_pow_max) # configured min/max one top
 
 		# check and skip short discharge burst e.g. use the grid power for the tee-kettle
@@ -1601,7 +1594,7 @@ class CChargeCtrlPID(CChargeCtrlBase):
 			elif self.discharge_pow_max >=0:
 				lg.debug('CC no-discharge hour profile')
 
-		if (abs(tol_pow) > self.charge_pow_tol) and (_gap_power_high is False):
+		if _gap_power_high is False:
 			lg.info('CC set new value: pGrid:{}[W] pCalcNew:{}[W] pOfs:{}[W]'.format(grid_pow,new_calc_pow,self.pow_grid_offset))
 			topic = self.dev_bic.top_inv + '/charge/set'
 			dpl = {"var":"chargeP"}
@@ -1629,10 +1622,10 @@ class CChargeCtrlPID(CChargeCtrlBase):
 				self.charge_pow_max = cprof.pow_charge_max
 				self.pow_grid_offset = cprof.pow_grid_offset
 				self.pid.cfg_offset = cprof.pow_grid_offset
-		
+
 		return
 
-			
+
 	def reset(self):
 		super().reset()
 		self.pid.reset()
