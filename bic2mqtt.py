@@ -5,7 +5,7 @@ APP_NAME = "bic2mqtt"
 """
  fst:05.04.2024 lst:11.09.2024
  Meanwell BIC2200-XXCAN to mqtt bridge
- V1.03 -pow in tollerance counter for stats
+ V1.03 +pow in tolerance: finetune the charge control
  V1.02 -improvments: better power direction changed detection
  V1.01 +surplus-switch object,
  		power-gap handling, reduce bic write commands
