@@ -1567,7 +1567,7 @@ class CChargeCtrlPID(CChargeCtrlBase):
 				misc_print_cr('CC pid stoped tol:{}[W] cnt:{}'.format(tol_pow,self.pow_in_tol_cnt))
 				self.pid.reset()
 				self.calc_power_set(self.calc_pow_last)
-			return
+				return
 
 
 		""" V1.0 try to use gap power calculation for skipping set power
