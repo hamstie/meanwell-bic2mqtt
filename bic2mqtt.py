@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-APP_VER = "1.03"
+APP_VER = "1.1"
 APP_NAME = "bic2mqtt"
 
 """
- fst:05.04.2024 lst:11.09.2024
+ fst:05.04.2024 lst:12.09.2024
  Meanwell BIC2200-XXCAN to mqtt bridge
+ V1.1 -power reset, increased threshold
  V1.03 +pow in tolerance: finetune the charge control
  V1.02 -improvments: better power direction changed detection
  V1.01 +surplus-switch object,
@@ -15,16 +16,6 @@ APP_NAME = "bic2mqtt"
  V0.75 -grid offset as profile value
  V0.74 -Bugfix charge reset sign detection and value type
  V0.72 -exit on startup if bic dev access failed
- V0.71 -catch CAN write exception in reset function
- V0.70 ...surplusP,surplusKWh calculation
- V0.64 -try2decrease eeprom writes if the bat is low or full
- V0.62 -parse program argument: ini file path and name
-       -move charge min/max parameter from pid to base class
- V0.61 +charge profiles for each hour
- V0.53 ..fast pid reset if grid power changed the direction
- V0.52 -minimize eeprom write access (cfg tolerance & rounding)
-	   -audit grid-power tmo handling
- V0.51 -pid-charge control is running
  ....
 
  @todo:
@@ -1527,7 +1518,7 @@ class CChargeCtrlPID(CChargeCtrlBase):
 		if  (abs(self.grid_pow_last) <= (self.charge_pow_tol *2)) or (self.grid_pow_last ==0):
 			return False
 
-		if  abs(grid_pow_now) >= 100:
+		if  abs(grid_pow_now) >= 300:
 			if CChargeCtrlBase.sign(grid_pow_now) != CChargeCtrlBase.sign(self.grid_pow_last):
 				return True
 		return False
