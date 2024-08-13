@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-APP_VER = "1.1"
+APP_VER = "1.2"
 APP_NAME = "bic2mqtt"
 
 """
- fst:05.04.2024 lst:12.09.2024
+ fst:05.04.2024 lst:13.08.2024
  Meanwell BIC2200-XXCAN to mqtt bridge
- V1.1 -power reset, increased threshold
+ V1.2 ...
+ V1.1(released) -power reset, increased threshold
  V1.03 +pow in tolerance: finetune the charge control
  V1.02 -improvments: better power direction changed detection
  V1.01 +surplus-switch object,
