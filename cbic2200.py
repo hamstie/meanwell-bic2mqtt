@@ -11,7 +11,7 @@
 # - variables plausibility check
 # - programming missing functions
 # - current and voltage maximum settings
-VER = "0.2.78"
+VER = "0.2.791"
 # steve 08.06.2023  Version 0.2.1
 # steve 10.06.2023  Version 0.2.2
 # macGH 15.06.2023  Version 0.2.3
@@ -43,7 +43,8 @@ VER = "0.2.78"
 # hamstie 4.5.2024 catch index error if can read failed
 # hamstie 26.05.2024 Version 0.2.76 skip useless eeprom writes for the direction mode
 # hamstie 10.07.2024 Version 0.2.77 catch value error
-# hamstie 30.07.2024 Version 0.2.78 rs232-can device shutdown, wrong function was called 
+# hamstie 30.07.2024 Version 0.2.78 rs232-can device shutdown, wrong function was called
+# hamstie 21-09-2024 Version 0.2.791 fan read function
 
 import os
 import can
@@ -108,6 +109,7 @@ def bic22_commands():
     print("       dirread              -- read direction 0:charge,1:discharge ")
     print("")
     print("       tempread             -- read power supply temperature")
+    print("       fanread              -- read fan 1 and 2 speed")
     print("       typeread             -- read power supply type")
     print("       dump                 -- dump supply info type, software, revision")
     print("       statusread           -- read power supply status")
@@ -158,6 +160,8 @@ class CBic:
     e_cmd_READ_VIN =            0x0050 # AC voltage reading value
     e_cmd_READ_VOUT =           0x0060 # DC voltage reading value
     e_cmd_READ_IOUT =           0x0061 # DC current reading value
+    e_cmd_READ_FAN1 =           0x0070 # fan speed fan1
+    e_cmd_READ_FAN2 =           0x0071 # fan speed fan2
     e_cmd_DIRECTION_CTRL =      0x0100 # charge discharge direcrion control
     e_cmd_REVERSE_VOUT_SET =    0x0120 # @notice: eeprom write
     e_cmd_REVERSE_IOUT_SET =    0x0130 # @notice: eeprom write
@@ -221,6 +225,18 @@ class CBic:
         except can.CanError:
             print("CAN send error")
             raise RuntimeError("can't send can message")
+
+
+    """ receive 16Bit word from can
+        return default value on any read error
+    """
+    def can_receive_word(self,e_cmd :int,default = None):
+        cmd_hb,cmd_lb = get_high_low_byte(e_cmd)
+        self.can_send_msg(self,[cmd_lb,cmd_hb])
+        v=self.can_receive()
+        if v is None:
+            return default
+        return v
 
     """
     read a word if it is equal to val, do nothing (force is False)
@@ -652,6 +668,17 @@ class CBic:
         v = self.can_receive()
         return v
 
+    # @eturn fan1,fan2 speed
+    def fanread(self,silence = False):
+        # print ("read fan speed")
+        v1 = self.can_receive_word(CBic.e_cmd_READ_FAN1)
+        v2 = self.can_receive_word(CBic.e_cmd_READ_FAN2)
+
+        if silence is False:
+            print('fan1:{} fan2:{}'.format(v1,v2))
+        return v1,v2
+
+
     # @return list of the affected bits
     def statusread(self,silence = False):
         # print ("Read System Status")
@@ -806,6 +833,7 @@ def command_line_argument(bic):
     elif sys.argv[1] in ['discharge']: bic.BIC_chargemode(CBic.e_charge_mode_discharge)
     elif sys.argv[1] in ['dirread']:   pp(bic.BIC_chargemode_read())
     elif sys.argv[1] in ['tempread']:  pp(bic.tempread())
+    elif sys.argv[1] in ['fanread']:   bic.fanread()
     elif sys.argv[1] in ['typeread']:  pp(bic.typeread())
     elif sys.argv[1] in ['dump']:      bic.dump()
     elif sys.argv[1] in ['statusread']:bic.statusread()
