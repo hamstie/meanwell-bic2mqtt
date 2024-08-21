@@ -44,7 +44,7 @@ VER = "0.2.791"
 # hamstie 26.05.2024 Version 0.2.76 skip useless eeprom writes for the direction mode
 # hamstie 10.07.2024 Version 0.2.77 catch value error
 # hamstie 30.07.2024 Version 0.2.78 rs232-can device shutdown, wrong function was called
-# hamstie 21-09-2024 Version 0.2.791 fan read function
+# hamstie 21-09-2024 Version 0.2.791 fan read function (only working later "firmRev": "0xd0e")
 
 import os
 import can
@@ -109,7 +109,7 @@ def bic22_commands():
     print("       dirread              -- read direction 0:charge,1:discharge ")
     print("")
     print("       tempread             -- read power supply temperature")
-    print("       fanread              -- read fan 1 and 2 speed")
+    print("       fanread              -- read fan 1 and 2 speed (> firmRev: 0xd0e) ")
     print("       typeread             -- read power supply type")
     print("       dump                 -- dump supply info type, software, revision")
     print("       statusread           -- read power supply status")
@@ -498,6 +498,7 @@ class CBic:
             self.can_send_msg([0xC2,0x00,sys_cfg_l,sys_cfg_h])
             time.sleep(1)
 
+        # (only working later "firmRev": "0xd0e")
         flag_eeprom_write = get_normalized_bit(int(sys_cfg_h), bit_index=2)
         if flag_eeprom_write ==0:
             # write value to eeprom enabled
@@ -746,7 +747,7 @@ class CBic:
     """ Read System Fault Status
         Command Code 0x0040
         - set and count faults
-        @retun true if something has changed
+        @return true if something has changed
     """
     def faultread(self):
         self.fault_changed = False
