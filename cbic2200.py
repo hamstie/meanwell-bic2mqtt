@@ -160,6 +160,7 @@ class CBic:
     e_cmd_READ_VIN =            0x0050 # AC voltage reading value
     e_cmd_READ_VOUT =           0x0060 # DC voltage reading value
     e_cmd_READ_IOUT =           0x0061 # DC current reading value
+    e_cmd_READ_TEMPERATURE_1 =  0x0062 # read temperature
     e_cmd_READ_FAN1 =           0x0070 # fan speed fan1
     e_cmd_READ_FAN2 =           0x0071 # fan speed fan2
     e_cmd_DIRECTION_CTRL =      0x0100 # charge discharge direcrion control
@@ -657,16 +658,7 @@ class CBic:
         return s
 
     def tempread(self):
-        # print ("read power supply temperature")
-        # Command Code 0x0062
-        # Read AC Voltage
-
-        commandhighbyte = 0x00
-        commandlowbyte = 0x62
-
-        self.can_send_msg([commandlowbyte,commandhighbyte])
-        v = self.can_receive()
-        return v
+        return self.can_receive_word(CBic.e_cmd_READ_TEMPERATURE_1)
 
     # @eturn fan1,fan2 speed
     def fanread(self,silence = False):
