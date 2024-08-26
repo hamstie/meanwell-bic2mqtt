@@ -5,7 +5,8 @@ APP_NAME = "bic2mqtt"
 """
  fst:05.04.2024 lst:26.09.2024
  Meanwell BIC2200-XXCAN to mqtt bridge
- V1.2 +fanspeed info 
+ V1.2 +fanspeed info
+	   DischargeBlockTime as profile parameter for each hour
  V1.1 -power reset, increased threshold
  V1.03 +pow in tolerance: finetune the charge control
  V1.02 -improvments: better power direction changed detection
@@ -805,13 +806,14 @@ class CCCProfile():
 		self.pow_charge_max = 0  # [W]
 		self.pow_discharge_max = 0 # [W] (negative power value)
 		self.pow_grid_offset = 0 # [W] # grid power offset
+		self.discharge_block_tmo = CChargeCtrlBase.DEF_BLOCK_TIME_DISCHARGE # [s] # block time for discharging after charge
 
 	""" configure all hours
 		Y=* defaulting for all hours else use the hour of day [0..23]
 		- [CHARGE_CONTROL]/Id/X/Profile/Hour/Y/MaxChargePower  def:0 [W]
 		- [CHARGE_CONTROL]/Id/X/Profile/Hour/Y/MaxDischargePower  def:0 [W]
 		- [CHARGE_CONTROL]/Id/X/Profile/Hour/Y/GridOffsetPower  def:0 [W] grid power offset, will be added to the power value of the smart meter
-
+		- [CHARGE_CONTROL]/Id/X/Profile/Hour/Y/DischargeBlockTimeSec def:60 [s] discharge block time after charge
 	"""
 	@staticmethod
 	def cfg(ini):
@@ -824,6 +826,7 @@ class CCCProfile():
 		pow_charge_max_def = 0 # ini.get_int('CHARGE_CONTROL',kpfx('*','MaxChargePower'),0)
 		pow_discharge_max_def = 0 # = ini.get_int('CHARGE_CONTROL',kpfx('*','MaxDischargePower'),0)
 		pow_grid_offset_def = 0
+		discharge_block_tmo_def = CChargeCtrlBase.DEF_BLOCK_TIME_DISCHARGE
 
 		for h in range(0,24):
 			cprof = CCCProfile(h,None)
@@ -831,16 +834,18 @@ class CCCProfile():
 			cprof.pow_charge_max = ini.get_int('CHARGE_CONTROL',kpfx(str(h),'MaxChargePower'),pow_charge_max_def)
 			cprof.pow_discharge_max = ini.get_int('CHARGE_CONTROL',kpfx(str(h),'MaxDischargePower'),pow_discharge_max_def)
 			cprof.pow_grid_offset = ini.get_int('CHARGE_CONTROL',kpfx(str(h),'GridOffsetPower'),pow_grid_offset_def)
+			cprof.discharge_block_tmo = ini.get_int('CHARGE_CONTROL',kpfx(str(h),'DischargeBlockTimeSec'),discharge_block_tmo_def)
 			pow_charge_max_def = cprof.pow_charge_max
 			pow_discharge_max_def = cprof.pow_discharge_max
 			pow_grid_offset_def = cprof.pow_grid_offset
+			discharge_block_tmo_def = cprof.discharge_block_tmo 
 			CCCProfile.lst_hour.append(cprof)
 
 		CCCProfile.dump()
 
 
 	def __str__(self):
-		sret = '{}[h] pCharge:{}[W] pDischarge:{}[W] pOffset:{}[W]'.format(self.hour,self.pow_charge_max,self.pow_discharge_max,self.pow_grid_offset)
+		sret = '{}[h] pCharge:{}[W] pDischarge:{}[W] block:{}[s] pOffset:{}[W]'.format(self.hour,self.pow_charge_max,self.pow_discharge_max,cprof.discharge_block_tmo,self.pow_grid_offset)
 		return sret
 
 	# @return true if the hour has changed
@@ -1615,6 +1620,7 @@ class CChargeCtrlPID(CChargeCtrlBase):
 				self.charge_pow_max = cprof.pow_charge_max
 				self.pow_grid_offset = cprof.pow_grid_offset
 				self.pid.cfg_offset = cprof.pow_grid_offset
+				self.discharge_block_tmo_cfg = cprof.discharge_block_tmo
 
 		return
 
