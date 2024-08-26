@@ -44,7 +44,7 @@ VER = "0.2.791"
 # hamstie 26.05.2024 Version 0.2.76 skip useless eeprom writes for the direction mode
 # hamstie 10.07.2024 Version 0.2.77 catch value error
 # hamstie 30.07.2024 Version 0.2.78 rs232-can device shutdown, wrong function was called
-# hamstie 21-09-2024 Version 0.2.791 fan read function (only working later "firmRev": "0xd0e")
+# hamstie 28-09-2024 Version 0.2.791 fan read function (only working later "firmRev": "0xd0e")
 
 import os
 import can
@@ -233,7 +233,7 @@ class CBic:
     """
     def can_receive_word(self,e_cmd :int,default = None):
         cmd_hb,cmd_lb = get_high_low_byte(e_cmd)
-        self.can_send_msg(self,[cmd_lb,cmd_hb])
+        self.can_send_msg([cmd_lb,cmd_hb])
         v=self.can_receive()
         if v is None:
             return default
