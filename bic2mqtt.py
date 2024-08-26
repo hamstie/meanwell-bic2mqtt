@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-APP_VER = "1.1"
+APP_VER = "1.2"
 APP_NAME = "bic2mqtt"
 
 """
- fst:05.04.2024 lst:12.09.2024
+ fst:05.04.2024 lst:26.09.2024
  Meanwell BIC2200-XXCAN to mqtt bridge
+ V1.2 +fanspeed info 
  V1.1 -power reset, increased threshold
  V1.03 +pow in tolerance: finetune the charge control
  V1.02 -improvments: better power direction changed detection
@@ -374,6 +375,7 @@ class CBicDevBase():
 		self.state['opMode'] = 0  # device operating mode
 
 		self.state['tempC'] = -278
+		self.state['fan'] = [0,0] # fanspeed [U/min] ?
 		self.state['acGridV'] = 0 # grid-volatge [V]
 		self.state['dcBatV'] = 0 # bat voltage DV [V]
 		self.state['capBatPc'] = 0 # bat capacity [%]
@@ -445,6 +447,12 @@ class CBicDevBase():
 			self.state['tempC'] = int(temp_c / 10)
 		else:
 			self.state['tempC'] = -278
+
+		fan1,fan2 = self.bic.fanread()
+		if fan1 is not None:
+			self.state['fan'][0] = fan1
+		if fan2 is not None:
+			self.state['fan'][1] = fan2
 
 		op_mode = self.bic.operation_read()
 		if op_mode is None:
