@@ -659,13 +659,13 @@ class CBic:
         return s
 
     def tempread(self):
-        return self.can_receive_word(CBic.e_cmd_READ_TEMPERATURE_1)
+        return self.can_receive_word(CBic.e_cmd_READ_TEMPERATURE_1,-278)
 
     # @eturn fan1,fan2 speed
     def fanread(self,silence = False):
         # print ("read fan speed")
-        v1 = self.can_receive_word(CBic.e_cmd_READ_FAN1)
-        v2 = self.can_receive_word(CBic.e_cmd_READ_FAN2)
+        v1 = self.can_receive_word(CBic.e_cmd_READ_FAN1,0)
+        v2 = self.can_receive_word(CBic.e_cmd_READ_FAN2,0)
 
         if silence is False:
             print('fan1:{} fan2:{}'.format(v1,v2))
