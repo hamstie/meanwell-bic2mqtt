@@ -109,7 +109,7 @@ def bic22_commands():
     print("       dirread              -- read direction 0:charge,1:discharge ")
     print("")
     print("       tempread             -- read power supply temperature")
-    print("       fanread              -- read fan 1 and 2 speed (> firmRev: 0xd0e) ")
+    print("       fanread              -- read fan 1 and 2 speed [rpm]")
     print("       typeread             -- read power supply type")
     print("       dump                 -- dump supply info type, software, revision")
     print("       statusread           -- read power supply status")
