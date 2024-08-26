@@ -375,7 +375,7 @@ class CBicDevBase():
 		self.state['opMode'] = 0  # device operating mode
 
 		self.state['tempC'] = -278
-		self.state['fan'] = [0,0] # fanspeed [U/min] ?
+		self.state['fan'] = [0,0] # fanspeed [rpm]
 		self.state['acGridV'] = 0 # grid-volatge [V]
 		self.state['dcBatV'] = 0 # bat voltage DV [V]
 		self.state['capBatPc'] = 0 # bat capacity [%]
@@ -442,17 +442,11 @@ class CBicDevBase():
  	# @topic-pub <main-app>/inv/<id>/state
 	def update_state(self):
 
-		temp_c= self.bic.tempread()
-		if temp_c is not None:
-			self.state['tempC'] = int(temp_c / 10)
-		else:
-			self.state['tempC'] = -278
-
+		
+		self.state['tempC'] = int(self.bic.tempread() / 10)
 		fan1,fan2 = self.bic.fanread()
-		if fan1 is not None:
-			self.state['fan'][0] = fan1
-		if fan2 is not None:
-			self.state['fan'][1] = fan2
+		self.state['fan'][0] = fan1
+		self.state['fan'][1] = fan2
 
 		op_mode = self.bic.operation_read()
 		if op_mode is None:
