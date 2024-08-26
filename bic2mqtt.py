@@ -445,7 +445,7 @@ class CBicDevBase():
 
 		
 		self.state['tempC'] = int(self.bic.tempread() / 10)
-		fan1,fan2 = self.bic.fanread()
+		fan1,fan2 = self.bic.fanread(True)
 		self.state['fan'][0] = fan1
 		self.state['fan'][1] = fan2
 
@@ -845,7 +845,7 @@ class CCCProfile():
 
 
 	def __str__(self):
-		sret = '{}[h] pCharge:{}[W] pDischarge:{}[W] block:{}[s] pOffset:{}[W]'.format(self.hour,self.pow_charge_max,self.pow_discharge_max,cprof.discharge_block_tmo,self.pow_grid_offset)
+		sret = '{}[h] pCharge:{}[W] pDischarge:{}[W] block:{}[s] pOffset:{}[W]'.format(self.hour,self.pow_charge_max,self.pow_discharge_max,self.discharge_block_tmo,self.pow_grid_offset)
 		return sret
 
 	# @return true if the hour has changed
