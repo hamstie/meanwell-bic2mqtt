@@ -119,7 +119,7 @@ To control charging and discharging with this app.
 |Id/X/Profile/Hour/h/MaxChargePower    | def:0 [W]      | Charge profiles, per hour [0..23]    |
 |Id/X/Profile/Hour/h/MaxDischargePower |def:0 [W]       | Discharge profiles, per hour [0..23] |
 |Id/X/Profile/Hour/h/GridOffsetPower   |def:0 [W]       | Grid(Smart-Meter) offset , per hour [0..23] |
-|Id/X/Profile/Hour/h/DischargeBlockTimeSec | def:60s    | skip short discharge bursts |
+|Id/X/Profile/Hour/h/DischargeBlockTimeSec | def:60 [s] | skip short discharge bursts |
 |Id/X/switch/Y/BlockRestart   | def:-1 [min]            | don't restart (block) time to re-set the switch | 
 
 ## Section [SURPLUS_SWITCH]
