@@ -38,7 +38,8 @@ Tested with the 24V Version BIC-2200-24-CAN<br>
        discharge <value>    -- set direction discharge battery
        dirread              -- read direction 0:charge,1:discharge
 
-       tempread             -- read power supply temperature
+       tempread             -- read power supply temperature 
+       fanread              -- read fan 1 and 2 speed (rpm) 
        typeread             -- read power supply type
        statusread           -- read power supply status
        dump                 -- dump some common hardware values, hardware-type, build-date, mcu1/2 software-version
@@ -101,7 +102,6 @@ To control charging and discharging with this app.
 |Id/X/Type                    | def:"PID"               | possible charger: pid, winter, none |
 |Id/X/TopicPower              | ""                      | subscribe topic for grid power values from the smart meter  <0:power to public-grid, >0 power-consumption from public.grid|
 |Id/X/TimeSliceCalcSec        | def:12 [s]              | time slice for each calculation loop (not used yet)       |
-|Id/X/DischargeBlockTimeSec   | def: 60[s]              | skip short discharge bursts                               |
 |Id/X/ChargeTol               | def: 10[W]              | don't set new charge value if the running one is nearby   |
 |Id/0/LoopGain                | def:0.5                 | regulator loop gain (only for the simple charger )        |
 |Id/X/Pid/MaxChargePower      | def:400 [W]             | max charge power value (relative for each step) [W]       |
@@ -119,6 +119,7 @@ To control charging and discharging with this app.
 |Id/X/Profile/Hour/h/MaxChargePower    | def:0 [W]      | Charge profiles, per hour [0..23]    |
 |Id/X/Profile/Hour/h/MaxDischargePower |def:0 [W]       | Discharge profiles, per hour [0..23] |
 |Id/X/Profile/Hour/h/GridOffsetPower   |def:0 [W]       | Grid(Smart-Meter) offset , per hour [0..23] |
+|Id/X/Profile/Hour/h/DischargeBlockTimeSec | def:60s    | skip short discharge bursts |
 |Id/X/switch/Y/BlockRestart   | def:-1 [min]            | don't restart (block) time to re-set the switch | 
 
 ## Section [SURPLUS_SWITCH]
