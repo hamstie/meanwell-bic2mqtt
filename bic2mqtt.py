@@ -942,7 +942,6 @@ class CChargeCtrlBase():
 	@param dbkey-int [CHARGE_CONTROL]Id/X/Type def:"PID" possible controller [None,Winter,PID]
 	not used yet @param dbkey-int [CHARGE_CONTROL]Id/X/TimeSliceCalcSec def:12[s] timeslice for each calculation [s]
 
-	@param dbkey-int [CHARGE_CONTROL]Id/X/DischargeBlockTimeSec def: 60[s] skip short discharge bursts
 	@param dbkey-int [CHARGE_CONTROL]Id/X/ChargePowerOffset def: 0[W] offset power for the calculation, move the zero point of power balance
 	@param dbkey-int [CHARGE_CONTROL]Id/X/ChargeTol def: 10[W] don't set new charge value if the running one is nearby
 
@@ -968,7 +967,6 @@ class CChargeCtrlBase():
 		self.enabled = True
 		self.ts_calc_cfg = ini.get_int('CHARGE_CONTROL',kpfx('TimeSliceCalcSec'),self.ts_calc_cfg)
 
-		self.discharge_block_tmo_cfg = ini.get_int('CHARGE_CONTROL',kpfx('DischargeBlockTimeSec'),CChargeCtrlBase.DEF_BLOCK_TIME_DISCHARGE)
 		self.pow_grid_offset = 0 # will be set via profile ini.get_int('CHARGE_CONTROL',kpfx('ChargePowerOffset'),self.pow_grid_offset)
 		self.charge_pow_tol = ini.get_int('CHARGE_CONTROL',kpfx('ChargeTol'),self.charge_pow_tol)
 		self.lst_discharge_block_hour[0] = ini.get_int('CHARGE_CONTROL',kpfx('DischargeBlockHourStart'),-1) # invalidate as default
