@@ -3,7 +3,7 @@ APP_VER = "1.2"
 APP_NAME = "bic2mqtt"
 
 """
- fst:05.04.2024 lst:27.09.2024
+ fst:05.04.2024 lst:28.09.2024
  Meanwell BIC2200-XXCAN to mqtt bridge
  V1.2 +fanspeed info
 	   DischargeBlockTime as profile parameter for each hour
@@ -446,8 +446,8 @@ class CBicDevBase():
 		
 		self.state['tempC'] = int(self.bic.tempread() / 10)
 		fan1,fan2 = self.bic.fanread(True)
-		self.state['fan'][0] = round(fan1,2)
-		self.state['fan'][1] = round(fan2,2)
+		self.state['fan'][0] = round(fan1,-2)
+		self.state['fan'][1] = round(fan2,-2)
 
 		op_mode = self.bic.operation_read()
 		if op_mode is None:
