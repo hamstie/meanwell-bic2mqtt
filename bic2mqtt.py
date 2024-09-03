@@ -124,21 +124,47 @@ class CInfo():
 		ePrioLow		= 2  # low prio
 		ePrioNone		= 99 # no prio, overwrite
 
-		def __init__(self,sMsg : str, prio = ePrioNone):
+		def __init__(inf, prio = ePrioNone):
+			self.inf = inf # parent info object
 			self.sMsg = sMsg
 			self.tView = 0 # seconds to display
 			self.prio = prio # prio 99 is the lowest
-			self.tmo_view_ms = -1 # timeout for the dispatcher 
+			self.tmo_view_ms = -1 # timeout for the dispatcher
+			self.dMsg = {}
+			self.dMsg['msgShort'] = "" # one liner e.g. lcd display
+			self.dMsg['msgLong'] = [] # More than one Line e.g. dashboard
+			self.dMsg['prio'] = self.prio
 
 	def __init__(self,mqttc,id):
 		self.mqttc = mqttc # mqtt-client
 		self.id = id # unique id, dev id ?
 		self.lstMsg = [] # list of Msg-Objects
 	
-	def poll(self,timeslive_ms):
-		pass
+	# append a message to the dispatcher
+	def append(self,new_inf):
+		if new_inf.prio == CInfo.Msg.ePrioLow:
+			self.lstMsg.append(inf)
+		if new_inf.prio == CInfo.Msg.ePrioHighest:
+			self.lstMsg.insert(0,inf)
+		else:
+			for lst_inf, idx in enumerate(self.lstMsg):
+				if lst_inf.prio <= new_inf.prio:
+					continue 
+				self.lstMsg.insert(idx+1,new_inf)
 
-		
+	def poll(self,timeslive_ms):
+		for inf in self.lstMsg:
+			if inf.tmo_view_ms >=0:
+				inf.tmo_view_ms-=timeslive_ms
+			else:
+				self.lstMsg.pop(0)
+
+	# @todo publish actual msg
+	def publish(self):
+		if len(self.lstMsg):
+			pass
+
+
 
 class CBattery():
 	def __init__(self,id):
