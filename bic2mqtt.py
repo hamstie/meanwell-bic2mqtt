@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-APP_VER = "1.2"
+APP_VER = "1.30"
 APP_NAME = "bic2mqtt"
 
 """
- fst:05.04.2024 lst:28.09.2024
+ fst:05.04.2024 lst:03.09.2024
  Meanwell BIC2200-XXCAN to mqtt bridge
+ V1.30 ...CInfo MQTT Message for e.g. a dasboard or display sink
  V1.2 +fanspeed info
 	   DischargeBlockTime as profile parameter for each hour
  V1.1 -power reset, increased threshold
@@ -114,6 +115,30 @@ class CIni:
 		if self.cfg.has_section(sec):
 			ret = dict(self.cfg.items(sec))
 		return ret
+
+# class to provide mqtt messages for e.g. dashboards or lcd- displays.
+class CInfo():
+
+	class Msg():
+		ePrioHighest 	= 1  # highest prio
+		ePrioLow		= 2  # low prio
+		ePrioNone		= 99 # no prio, overwrite
+
+		def __init__(self,sMsg : str, prio = ePrioNone):
+			self.sMsg = sMsg
+			self.tView = 0 # seconds to display
+			self.prio = prio # prio 99 is the lowest
+			self.tmo_view_ms = -1 # timeout for the dispatcher 
+
+	def __init__(self,mqttc,id):
+		self.mqttc = mqttc # mqtt-client
+		self.id = id # unique id, dev id ?
+		self.lstMsg = [] # list of Msg-Objects
+	
+	def poll(self,timeslive_ms):
+		pass
+
+		
 
 class CBattery():
 	def __init__(self,id):
