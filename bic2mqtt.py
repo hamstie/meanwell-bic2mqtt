@@ -125,18 +125,21 @@ class CInfo():
 		ePrioNone		= 99 # no prio, overwrite
 
 		DEF_VIEW_MAX_TMO_MS = 2000 # [ms] default max. time to display the msg before the next one will be dispatched
-		DEF_QUEUE_TMO = 6000 # [ms] max. time to queue without to be viewd
+		DEF_QUEUE_TMO_MS = 6000 # [ms] max. time to queue without to be viewd
 
 		def __init__(prio = ePrioNone):
 			self.sMsg = sMsg
 			self.tView = 0 # seconds to display
 			self.prio = prio # prio 99 is the lowest
 			self.tmo_view_max_ms = CInfo.Msg.DEF_VIEW_MAX_TMO_MS # max. time to display the msg timeout before the next will be dispatched
-			self.tmo_queue_ms = CInfo.Msg.DEF_QUEUE_TMO # max time to queue the msg 
+			self.tmo_queue_ms = CInfo.Msg.DEF_QUEUE_TMO_MS # max time to queue the msg 
 			self.dMsg = {}
 			self.dMsg['msgShort'] = "" # one liner e.g. lcd display
 			self.dMsg['msgLong'] = [] # More than one Line e.g. dashboard
 			self.dMsg['prio'] = self.prio
+
+		def __str__(self):
+			return "prio:{} msg:'{}' tmo:{}".format(self.prio, self.dMsg['msgShort'],self.tmo_view_max_ms)
 
 	def __init__(self,mqttc,topic):
 		self.mqttc = mqttc # mqtt-client
@@ -155,11 +158,14 @@ class CInfo():
 		for lst_inf, idx in enumerate(self.lstMsg):
 			if lst_inf.prio <= new_inf.prio:
 				continue
-			if idx == 0:
-				pass # @todo
 			self.lstMsg.insert(idx+1,new_inf)
 		if first_old != self.get_first_msg():
 			self.update()
+
+	def dump(self):
+		for inf in lstMsg:
+			print(inf)
+
 
 	def poll(self,timeslive_ms):
 		for inf,idx in enumerate(self.lstMsg):
