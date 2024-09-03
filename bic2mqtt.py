@@ -124,46 +124,65 @@ class CInfo():
 		ePrioLow		= 2  # low prio
 		ePrioNone		= 99 # no prio, overwrite
 
-		def __init__(inf, prio = ePrioNone):
-			self.inf = inf # parent info object
+		DEF_VIEW_MAX_TMO_MS = 2000 # [ms] default max. time to display the msg before the next one will be dispatched
+		DEF_QUEUE_TMO = 6000 # [ms] max. time to queue without to be viewd
+
+		def __init__(prio = ePrioNone):
 			self.sMsg = sMsg
 			self.tView = 0 # seconds to display
 			self.prio = prio # prio 99 is the lowest
-			self.tmo_view_ms = -1 # timeout for the dispatcher
+			self.tmo_view_max_ms = CInfo.Msg.DEF_VIEW_MAX_TMO_MS # max. time to display the msg timeout before the next will be dispatched
+			self.tmo_queue_ms = CInfo.Msg.DEF_QUEUE_TMO # max time to queue the msg 
 			self.dMsg = {}
 			self.dMsg['msgShort'] = "" # one liner e.g. lcd display
 			self.dMsg['msgLong'] = [] # More than one Line e.g. dashboard
 			self.dMsg['prio'] = self.prio
 
-	def __init__(self,mqttc,id):
+	def __init__(self,mqttc,topic,id):
 		self.mqttc = mqttc # mqtt-client
+		self.topic = topic # topic for publishing messages 
 		self.id = id # unique id, dev id ?
 		self.lstMsg = [] # list of Msg-Objects
 	
+	def get_first_msg(self):
+		ret_msg = None
+		if len(self.lstMsg):
+			ret_msg = lstMsg[0]
+		return ret_msg
+
 	# append a message to the dispatcher
-	def append(self,new_inf):
-		if new_inf.prio == CInfo.Msg.ePrioLow:
-			self.lstMsg.append(inf)
-		if new_inf.prio == CInfo.Msg.ePrioHighest:
-			self.lstMsg.insert(0,inf)
-		else:
-			for lst_inf, idx in enumerate(self.lstMsg):
-				if lst_inf.prio <= new_inf.prio:
-					continue 
-				self.lstMsg.insert(idx+1,new_inf)
+	def append(self,new_inf):		
+		first_old = self.get_first_msg()
+		for lst_inf, idx in enumerate(self.lstMsg):
+			if lst_inf.prio <= new_inf.prio:
+				continue
+			if idx == 0:
+				pass # @todo
+			self.lstMsg.insert(idx+1,new_inf)
+		if first_old != self.get_first_msg():
+			self.update()
 
 	def poll(self,timeslive_ms):
-		for inf in self.lstMsg:
-			if inf.tmo_view_ms >=0:
-				inf.tmo_view_ms-=timeslive_ms
-			else:
-				self.lstMsg.pop(0)
+		for inf,idx in enumerate(self.lstMsg):
+			if idx==0:
+				if inf.tmo_view_max_ms >= 0:
+					inf.tmo_view_max_ms -= timeslive_ms
+				else:	
+					self.lstMsg.pop(0)
+					self.update()
+			else: # idx != 0
+				if inf.tmo_queue_ms >= 0:
+					inf.tmo_queue_ms -= timeslive_ms
+				else:	
+					self.lstMsg.remove(inf)
+				
 
 	# @todo publish actual msg
-	def publish(self):
+	def update(self):
 		if len(self.lstMsg):
-			pass
-
+			self.mqttc.publish(CMQtt.Msg(self.topic,self.lstMsg[0].dMsg))
+		else:
+			pass # @todo publish empty msg
 
 
 class CBattery():
@@ -418,6 +437,7 @@ class CBicDevBase():
 		self.cc = None	# charge control
 		self.sp = CSurplus(self.id) # surplus switch
 		self.bat = self.bat = CBattery(self.id) # battery
+		self.inf_msg = CInfo(mqttc,'top',0) # object to dispatch messages
 
 		self.info = {}
 		self.info['id'] = int(self.id) # append some info from bic dump
