@@ -138,10 +138,9 @@ class CInfo():
 			self.dMsg['msgLong'] = [] # More than one Line e.g. dashboard
 			self.dMsg['prio'] = self.prio
 
-	def __init__(self,mqttc,topic,id):
+	def __init__(self,mqttc,topic):
 		self.mqttc = mqttc # mqtt-client
 		self.topic = topic # topic for publishing messages 
-		self.id = id # unique id, dev id ?
 		self.lstMsg = [] # list of Msg-Objects
 	
 	def get_first_msg(self):
@@ -180,9 +179,11 @@ class CInfo():
 	# @todo publish actual msg
 	def update(self):
 		if len(self.lstMsg):
-			self.mqttc.publish(CMQtt.Msg(self.topic,self.lstMsg[0].dMsg))
+			jpl = json.dumps(self.lstMsg[0].dMsg, sort_keys=False, indent=4)	
 		else:
-			pass # @todo publish empty msg
+			null_msg = CInfo.Msg()
+			jpl = json.dumps(null_msg.dMsg, sort_keys=False, indent=4)
+		mqttc.publish(self.topic,jpl,0,False) # not retained
 
 
 class CBattery():
@@ -437,7 +438,8 @@ class CBicDevBase():
 		self.cc = None	# charge control
 		self.sp = CSurplus(self.id) # surplus switch
 		self.bat = self.bat = CBattery(self.id) # battery
-		self.inf_msg = CInfo(mqttc,'top',0) # object to dispatch messages
+		global mqttc		
+		self.inf_msg = CInfo(mqttc,MQTT_T_APP + '/inv/' + str(self.id) +  '/info') # object to dispatch messages
 
 		self.info = {}
 		self.info['id'] = int(self.id) # append some info from bic dump
@@ -724,6 +726,8 @@ class CBicDevBase():
 		else:
 			self.tmo_charge_ms = self.cfg_tmo_charge_ms
 			self.update_charge()
+		
+		self.inf_msg.poll()
 
 	""" set a new charge value in [A]
 		val >0 charging the bat
