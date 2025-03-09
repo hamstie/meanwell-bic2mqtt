@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-APP_VER = "1.3"
+APP_VER = "1.4"
 APP_NAME = "bic2mqtt"
 
 """
- fst:05.04.2024 lst:31.10.2024
+ fst:05.04.2024 lst:09.03.2025
  Meanwell BIC2200-XXCAN to mqtt bridge
+ V1.4 Bugfix Enable/Disable ChargeControl
  V1.3 Bugfix ChargeCtrlWinter
  V1.2 +fanspeed info
 	   DischargeBlockTime as profile parameter for each hour
@@ -1031,9 +1032,9 @@ class CChargeCtrlBase():
 		self.gap_pow = 0
 		self.pow_in_tol_cnt = 0
 
-	def enable(self,enable :bool):
-		self.enabled=enable
-		lg.info('CC charge control enable:' +str(enable))
+	def enable(self,_enable :bool):
+		self.enabled=_enable
+		lg.info('CC charge control enable:' +str(_enable))
 		self.reset()
 
 	def poll(self,timeslice_ms):
